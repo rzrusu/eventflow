@@ -10,6 +10,8 @@ import {
   Panel
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import useStoryStore from '../src/store/storyStore';
+import EventEditor from './EventEditor';
 
 // Custom node for an event
 const EventNode = ({ data }) => {
@@ -43,33 +45,75 @@ const StoryFlow = ({ storylineId }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   
-  // Starter event for the current storyline
-  const [starterEventId, setStarterEventId] = useState(null);
-  
-  // Counter for creating unique node IDs
-  const [nodeIdCounter, setNodeIdCounter] = useState(1);
-  
   // Track the selected node
   const [selectedNode, setSelectedNode] = useState(null);
   
   // Toggle for control panel visibility
   const [showControls, setShowControls] = useState(false);
+  
+  // Track the node being edited
+  const [editingNodeId, setEditingNodeId] = useState(null);
+  const [editingNodeData, setEditingNodeData] = useState(null);
+  
+  // Get state and actions from the store
+  const {
+    loadEvents,
+    createEvent,
+    updateEvent,
+    deleteEvent,
+    setEventAsStarter,
+    addEdge: addDbEdge,
+    removeEdge: removeDbEdge
+  } = useStoryStore();
 
-  // Effect to reset flow when storyline changes
+  // Load events from the database when storyline changes
   useEffect(() => {
-    // In a real app, you would fetch the storyline data from your backend here
-    console.log(`Loading storyline: ${storylineId}`);
+    const fetchEvents = async () => {
+      if (!storylineId) return;
+      
+      try {
+        // Get events from the database
+        const dbEvents = await loadEvents(storylineId);
+        
+        // Convert events to ReactFlow nodes
+        const flowNodes = dbEvents.map(event => ({
+          id: event.id,
+          type: 'event',
+          position: event.position || { x: 0, y: 0 },
+          data: {
+            ...event,
+            isStarter: !!event.isStarter
+          }
+        }));
+        
+        // Create edges from events' links
+        const flowEdges = [];
+        dbEvents.forEach(event => {
+          if (event.links && event.links.length > 0) {
+            event.links.forEach(targetId => {
+              flowEdges.push({
+                id: `edge-${event.id}-${targetId}`,
+                source: event.id,
+                target: targetId,
+                type: 'smoothstep'
+              });
+            });
+          }
+        });
+        
+        setNodes(flowNodes);
+        setEdges(flowEdges);
+        setSelectedNode(null);
+      } catch (error) {
+        console.error('Error loading events for storyline', error);
+      }
+    };
     
-    // For now, just reset the flow when storyline changes
-    setNodes([]);
-    setEdges([]);
-    setStarterEventId(null);
-    setNodeIdCounter(1);
-    setSelectedNode(null);
-  }, [storylineId]);
+    fetchEvents();
+  }, [storylineId, loadEvents, setNodes, setEdges]);
 
   // Handle connections between nodes
-  const onConnect = useCallback((params) => {
+  const onConnect = useCallback(async (params) => {
     // Create an edge with a unique id
     const edge = {
       ...params,
@@ -78,58 +122,96 @@ const StoryFlow = ({ storylineId }) => {
       type: 'smoothstep'
     };
     
+    // Add the edge to the database
+    await addDbEdge(params.source, params.target);
+    
+    // Add the edge to the flow
     setEdges((eds) => addEdge(edge, eds));
-  }, [setEdges]);
+  }, [setEdges, addDbEdge]);
+  
+  // Handle node drag
+  const onNodeDragStop = useCallback(async (event, node) => {
+    // Update the node position in the database
+    await updateEvent(node.id, { position: node.position });
+  }, [updateEvent]);
   
   // Handle node selection
   const onNodeClick = (event, node) => {
     setSelectedNode(node.id);
   };
   
+  // Handle node double-click to edit
+  const onNodeDoubleClick = (event, node) => {
+    setEditingNodeId(node.id);
+    setEditingNodeData(node.data);
+  };
+  
   // Handle click on canvas to deselect node
   const onPaneClick = () => {
     setSelectedNode(null);
   };
+  
+  // Handle edge removal
+  const onEdgeDelete = async (edge) => {
+    await removeDbEdge(edge.source, edge.target);
+  };
 
   // Create a new event node
-  const createEventNode = () => {
-    const newNodeId = `event-${nodeIdCounter}`;
+  const createEventNode = async () => {
+    if (!storylineId) return;
     
-    // Calculate position to avoid overlapping nodes
+    // Calculate position for new node
     // Position nodes in a grid-like pattern
     const nodesPerRow = 3;
-    const xPosition = 150 + ((nodeIdCounter % nodesPerRow) * 300);
-    const yPosition = 100 + (Math.floor(nodeIdCounter / nodesPerRow) * 200);
+    const nodesCount = nodes.length;
+    const xPosition = 150 + ((nodesCount % nodesPerRow) * 300);
+    const yPosition = 100 + (Math.floor(nodesCount / nodesPerRow) * 200);
     
-    const isFirstNode = nodes.length === 0;
+    const position = { x: xPosition, y: yPosition };
     
-    const newNode = {
-      id: newNodeId,
-      type: 'event',
-      position: { x: xPosition, y: yPosition },
-      data: {
-        id: newNodeId,
-        title: `Event ${nodeIdCounter}`,
-        content: 'Double-click to edit this event',
-        options: [],
-        isStarter: isFirstNode // First node is automatically the starter
+    // Create the event in the database
+    const newEventId = await createEvent(storylineId, {
+      title: `Event ${nodesCount + 1}`,
+      content: 'Double-click to edit this event',
+      position,
+      options: [],
+      links: []
+    });
+    
+    if (newEventId) {
+      // Reload events to get the updated list with the new event
+      const dbEvents = await loadEvents(storylineId);
+      
+      // Find our new event
+      const newEvent = dbEvents.find(e => e.id === newEventId);
+      
+      if (newEvent) {
+        // Add the new node to the flow
+        const newNode = {
+          id: newEventId,
+          type: 'event',
+          position,
+          data: {
+            ...newEvent,
+            isStarter: !!newEvent.isStarter
+          }
+        };
+        
+        setNodes((nds) => [...nds, newNode]);
+        
+        // Select and start editing the new node
+        setSelectedNode(newEventId);
+        setEditingNodeId(newEventId);
+        setEditingNodeData(newNode.data);
       }
-    };
-    
-    setNodes((nds) => [...nds, newNode]);
-    setNodeIdCounter((prevCounter) => prevCounter + 1);
-    
-    // If this is the first node, set it as the starter
-    if (isFirstNode) {
-      setStarterEventId(newNodeId);
     }
-    
-    return newNodeId;
   };
 
   // Set an event as the starting event for the current storyline
-  const setAsStarterEvent = () => {
-    if (!selectedNode) return;
+  const setAsStarterEvent = async () => {
+    if (!selectedNode || !storylineId) return;
+    
+    await setEventAsStarter(selectedNode, storylineId);
     
     // Update the nodes to reflect the new starter
     setNodes(nodes.map(node => {
@@ -152,39 +234,50 @@ const StoryFlow = ({ storylineId }) => {
       }
       return node;
     }));
-    
-    setStarterEventId(selectedNode);
   };
 
   // Add a new option to the selected event
-  const addOptionToEvent = () => {
+  const addOptionToEvent = async () => {
     if (!selectedNode) return;
     
-    setNodes(nodes.map(node => {
-      if (node.id === selectedNode) {
-        const options = [...(node.data.options || [])];
-        options.push({
-          text: `Option ${options.length + 1}`,
-          nextEventId: null
-        });
-        
+    // Find the node
+    const node = nodes.find(n => n.id === selectedNode);
+    if (!node) return;
+    
+    // Create a new option
+    const options = [...(node.data.options || [])];
+    options.push({
+      text: `Option ${options.length + 1}`,
+      nextEventId: null
+    });
+    
+    // Update the event in the database
+    await updateEvent(selectedNode, { options });
+    
+    // Update the node in the flow
+    setNodes(nodes.map(n => {
+      if (n.id === selectedNode) {
+        const updatedData = {
+          ...n.data,
+          options
+        };
         return {
-          ...node,
-          data: {
-            ...node.data,
-            options
-          }
+          ...n,
+          data: updatedData
         };
       }
-      return node;
+      return n;
     }));
   };
 
   // Delete the selected node
-  const deleteSelectedNode = () => {
+  const deleteSelectedNode = async () => {
     if (!selectedNode) return;
     
-    // Remove the node
+    // Delete the event from the database
+    await deleteEvent(selectedNode);
+    
+    // Remove the node from the flow
     setNodes(nodes.filter(node => node.id !== selectedNode));
     
     // Remove any edges connected to this node
@@ -192,12 +285,47 @@ const StoryFlow = ({ storylineId }) => {
       edge.source !== selectedNode && edge.target !== selectedNode
     ));
     
-    // If we deleted the starter event, clear the starterEventId
-    if (selectedNode === starterEventId) {
-      setStarterEventId(null);
-    }
-    
     setSelectedNode(null);
+  };
+  
+  // Handle event editor close
+  const handleEventEditorClose = async () => {
+    setEditingNodeId(null);
+    setEditingNodeData(null);
+    
+    // Reload events to get the updated data
+    if (storylineId) {
+      const dbEvents = await loadEvents(storylineId);
+      
+      // Update the nodes with fresh data
+      setNodes(prevNodes => 
+        prevNodes.map(node => {
+          const updatedEvent = dbEvents.find(e => e.id === node.id);
+          if (updatedEvent) {
+            return {
+              ...node,
+              data: {
+                ...updatedEvent,
+                isStarter: !!updatedEvent.isStarter
+              }
+            };
+          }
+          return node;
+        })
+      );
+    }
+  };
+
+  // Edit event button handler
+  const handleEditEvent = () => {
+    if (!selectedNode) return;
+    
+    // Find the node
+    const node = nodes.find(n => n.id === selectedNode);
+    if (!node) return;
+    
+    setEditingNodeId(node.id);
+    setEditingNodeData(node.data);
   };
 
   return (
@@ -207,9 +335,12 @@ const StoryFlow = ({ storylineId }) => {
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onNodeDragStop={onNodeDragStop}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
+        onNodeDoubleClick={onNodeDoubleClick}
         onPaneClick={onPaneClick}
+        onEdgeDelete={onEdgeDelete}
         nodeTypes={nodeTypes}
         fitView
         minZoom={0.5}
@@ -249,9 +380,8 @@ const StoryFlow = ({ storylineId }) => {
             <div className="flow-node-controls">
               <div className="node-controls-label">Event Options</div>
               <button 
-                className={`control-btn ${starterEventId === selectedNode ? 'disabled' : ''}`}
+                className="control-btn"
                 onClick={setAsStarterEvent}
-                disabled={starterEventId === selectedNode}
                 title="Set as Starter Event"
               >
                 🏁 Set as Starter
@@ -263,6 +393,14 @@ const StoryFlow = ({ storylineId }) => {
                 title="Add Option"
               >
                 ➕ Add Option
+              </button>
+              
+              <button
+                className="control-btn"
+                onClick={handleEditEvent}
+                title="Edit Event"
+              >
+                ✏️ Edit Event
               </button>
               
               <button 
@@ -291,6 +429,7 @@ const StoryFlow = ({ storylineId }) => {
                   <p><strong>Tips:</strong></p>
                   <ul>
                     <li>Click on a node to select it</li>
+                    <li>Double-click a node to edit its content</li>
                     <li>Drag between nodes to connect them</li>
                     <li>The first node is automatically set as starter</li>
                   </ul>
@@ -300,6 +439,35 @@ const StoryFlow = ({ storylineId }) => {
           )}
         </Panel>
       </ReactFlow>
+      
+      {/* Event Editor Modal */}
+      {editingNodeId && editingNodeData && (
+        <div className="modal-backdrop">
+          <EventEditor 
+            eventId={editingNodeId}
+            eventData={editingNodeData}
+            onClose={handleEventEditorClose}
+          />
+        </div>
+      )}
+      
+      <style jsx>{`
+        .story-flow-container {
+          width: 100%;
+          height: 100%;
+          position: relative;
+        }
+        
+        .modal-backdrop {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: rgba(0, 0, 0, 0.5);
+          z-index: 999;
+        }
+      `}</style>
     </div>
   );
 };

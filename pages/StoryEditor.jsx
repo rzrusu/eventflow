@@ -1,91 +1,108 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import StoryFlow from '../components/StoryFlow';
+import useStoryStore from '../src/store/storyStore';
 import '../styles/StoryFlow.css';
 
 const StoryEditor = () => {
-  const [activeStory, setActiveStory] = useState(null);
-  const [activeStoryline, setActiveStoryline] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
   
-  // Example story data - in a real app, this would come from your backend
-  const [stories, setStories] = useState([
-    {
-      id: 'story-1',
-      title: 'My First Story',
-      description: 'An adventure through time',
-      storylines: [
-        {
-          id: 'storyline-1',
-          title: 'Main Path',
-          description: 'The primary storyline'
-        },
-        {
-          id: 'storyline-2',
-          title: 'Secret Ending',
-          description: 'An alternative storyline'
-        }
-      ]
+  // Get state and actions from the store
+  const { 
+    stories,
+    storylines,
+    activeStoryId, 
+    activeStorylineId,
+    isLoading,
+    error,
+    loadStories,
+    createStory,
+    updateStory,
+    deleteStory,
+    setActiveStory,
+    loadStorylines,
+    createStoryline,
+    deleteStoryline,
+    setActiveStoryline,
+    initializeSampleData
+  } = useStoryStore();
+  
+  // Load stories on component mount
+  useEffect(() => {
+    const initialize = async () => {
+      await loadStories();
+      setIsInitializing(false);
+    };
+    initialize();
+  }, [loadStories]);
+  
+  // Load sample data if no stories exist
+  useEffect(() => {
+    if (!isInitializing && stories.length === 0) {
+      initializeSampleData();
     }
-  ]);
+  }, [isInitializing, stories, initializeSampleData]);
+  
+  // Load storylines when activeStoryId changes
+  useEffect(() => {
+    if (activeStoryId) {
+      loadStorylines(activeStoryId);
+    }
+  }, [activeStoryId, loadStorylines]);
   
   // Create a new story
-  const createNewStory = () => {
-    const newStory = {
-      id: `story-${stories.length + 1}`,
+  const handleCreateStory = async () => {
+    const newStoryId = await createStory({
       title: `New Story ${stories.length + 1}`,
-      description: 'Add a description',
-      storylines: []
-    };
-    
-    setStories([...stories, newStory]);
-    setActiveStory(newStory.id);
-    setActiveStoryline(null);
-  };
-  
-  // Create a new storyline in the active story
-  const createNewStoryline = () => {
-    if (!activeStory) return;
-    
-    const updatedStories = stories.map(story => {
-      if (story.id === activeStory) {
-        const newStoryline = {
-          id: `storyline-${story.storylines.length + 1}-${Date.now()}`,
-          title: `New Storyline ${story.storylines.length + 1}`,
-          description: 'Add a description'
-        };
-        
-        return {
-          ...story,
-          storylines: [...story.storylines, newStoryline]
-        };
-      }
-      return story;
+      description: 'Add a description'
     });
     
-    setStories(updatedStories);
-    
-    // Find the newly created storyline and set it as active
-    const currentStory = updatedStories.find(s => s.id === activeStory);
-    if (currentStory && currentStory.storylines.length > 0) {
-      setActiveStoryline(currentStory.storylines[currentStory.storylines.length - 1].id);
+    if (newStoryId) {
+      setActiveStory(newStoryId);
     }
+  };
+  
+  // Create a new storyline
+  const handleCreateStoryline = async () => {
+    if (!activeStoryId) return;
+    
+    const storylines = await loadStorylines(activeStoryId);
+    const newStorylineId = await createStoryline(activeStoryId, {
+      title: `New Storyline ${storylines.length + 1}`,
+      description: 'Add a description'
+    });
+    
+    if (newStorylineId) {
+      setActiveStoryline(newStorylineId);
+    }
+  };
+  
+  // Get the active story object
+  const getActiveStory = () => {
+    return stories.find(s => s.id === activeStoryId);
   };
   
   // Get the active storyline object
-  const getActiveStorylineObject = () => {
-    if (!activeStory || !activeStoryline) return null;
-    
-    const story = stories.find(s => s.id === activeStory);
-    if (!story) return null;
-    
-    return story.storylines.find(sl => sl.id === activeStoryline);
+  const getActiveStoryline = () => {
+    return storylines.find(sl => sl.id === activeStorylineId);
   };
-
+  
   // Toggle sidebar visibility
   const toggleSidebar = () => {
     setSidebarCollapsed(!sidebarCollapsed);
   };
   
+  // Handle story click
+  const handleStoryClick = (storyId) => {
+    setActiveStory(storyId);
+  };
+  
+  // Get active storyline title
+  const getActiveStorylineTitle = () => {
+    const storyline = getActiveStoryline();
+    return storyline ? storyline.title : 'Select a Storyline';
+  };
+
   return (
     <div className="story-editor-container">
       {/* Collapsible Sidebar */}
@@ -94,13 +111,13 @@ const StoryEditor = () => {
           <>
             <div className="sidebar-section">
               <h2>Stories</h2>
-              <button onClick={createNewStory} className="create-btn">+ New Story</button>
+              <button onClick={handleCreateStory} className="create-btn">+ New Story</button>
               <ul className="story-list">
                 {stories.map(story => (
                   <li 
                     key={story.id} 
-                    className={activeStory === story.id ? 'active' : ''}
-                    onClick={() => setActiveStory(story.id)}
+                    className={activeStoryId === story.id ? 'active' : ''}
+                    onClick={() => handleStoryClick(story.id)}
                   >
                     {story.title}
                   </li>
@@ -108,23 +125,24 @@ const StoryEditor = () => {
               </ul>
             </div>
             
-            {activeStory && (
+            {activeStoryId && (
               <div className="sidebar-section">
                 <h2>Storylines</h2>
-                <button onClick={createNewStoryline} className="create-btn">+ New Storyline</button>
+                <button onClick={handleCreateStoryline} className="create-btn">+ New Storyline</button>
                 <ul className="storyline-list">
-                  {stories
-                    .find(s => s.id === activeStory)
-                    ?.storylines.map(storyline => (
+                  {isLoading ? (
+                    <li className="loading">Loading storylines...</li>
+                  ) : (
+                    storylines.map(storyline => (
                       <li 
                         key={storyline.id} 
-                        className={activeStoryline === storyline.id ? 'active' : ''}
+                        className={activeStorylineId === storyline.id ? 'active' : ''}
                         onClick={() => setActiveStoryline(storyline.id)}
                       >
                         {storyline.title}
                       </li>
                     ))
-                  }
+                  )}
                 </ul>
               </div>
             )}
@@ -141,12 +159,25 @@ const StoryEditor = () => {
       
       {/* Main Content Area */}
       <div className="story-editor-content">
-        {activeStory && activeStoryline ? (
+        {isLoading && (
+          <div className="loading-overlay">
+            <div className="loading-spinner"></div>
+            <p>Loading...</p>
+          </div>
+        )}
+        
+        {error && (
+          <div className="error-message">
+            <p>{error}</p>
+          </div>
+        )}
+        
+        {activeStoryId && activeStorylineId ? (
           <>
             <div className="content-header">
-              <h1>{getActiveStorylineObject()?.title || 'Select a Storyline'}</h1>
+              <h1>{getActiveStory()?.title || 'Select a Story'} / {getActiveStorylineTitle()}</h1>
             </div>
-            <StoryFlow storylineId={activeStoryline} />
+            <StoryFlow storylineId={activeStorylineId} />
           </>
         ) : (
           <div className="empty-state">
@@ -161,7 +192,7 @@ const StoryEditor = () => {
         )}
       </div>
       
-      <style jsx>{`
+      <style>{`
         .story-editor-container {
           display: flex;
           height: 100vh;
@@ -222,6 +253,7 @@ const StoryEditor = () => {
           display: flex;
           flex-direction: column;
           overflow: hidden;
+          position: relative;
         }
         
         .content-header {
@@ -290,6 +322,44 @@ const StoryEditor = () => {
           color: #666;
           text-align: center;
           padding: 20px;
+        }
+        
+        .loading-overlay {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: rgba(255, 255, 255, 0.7);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+        }
+        
+        .loading-spinner {
+          border: 4px solid #f3f3f3;
+          border-top: 4px solid #3498db;
+          border-radius: 50%;
+          width: 40px;
+          height: 40px;
+          animation: spin 1s linear infinite;
+          margin-bottom: 10px;
+        }
+        
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        
+        .error-message {
+          background-color: #ffebee;
+          color: #d32f2f;
+          padding: 10px;
+          margin: 10px;
+          border-radius: 4px;
+          border: 1px solid #ffcdd2;
         }
       `}</style>
     </div>
