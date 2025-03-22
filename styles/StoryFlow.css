@@ -1,0 +1,288 @@
+.story-flow-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.story-flow-toolbar {
+  padding: 12px;
+  background-color: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+  display: flex;
+  gap: 10px;
+}
+
+.create-event-btn {
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  padding: 10px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background-color 0.2s;
+}
+
+.create-event-btn:hover {
+  background-color: #45a049;
+}
+
+/* Flow editor styles */
+.story-flow-graph {
+  width: 100%;
+  height: 100%;
+}
+
+/* Custom node styling */
+.event-node {
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  width: 220px;
+  transition: box-shadow 0.2s, transform 0.1s;
+}
+
+.event-node:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.event-node-header {
+  background: #f8f8f8;
+  padding: 8px 12px;
+  border-top-left-radius: 7px;
+  border-top-right-radius: 7px;
+  border-bottom: 1px solid #eee;
+  font-weight: bold;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.event-node-content {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #333;
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+.event-node-options {
+  padding: 0 12px 8px;
+}
+
+.event-option {
+  background: #f0f0f0;
+  padding: 6px 10px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  border: 1px solid #e0e0e0;
+  cursor: pointer;
+}
+
+.event-option:hover {
+  background: #e8e8e8;
+}
+
+/* Starter event styling */
+.starter-event {
+  border: 2px solid #4caf50;
+}
+
+.starter-event .event-node-header {
+  background: #e8f5e9;
+}
+
+.starter-badge {
+  font-size: 10px;
+  background-color: #4caf50;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 10px;
+  margin-left: 8px;
+}
+
+/* React Flow custom styles */
+.react-flow__node-event {
+  padding: 0;
+  border-radius: 8px;
+  width: auto;
+  height: auto;
+}
+
+.react-flow__handle {
+  width: 8px;
+  height: 8px;
+  background-color: #555;
+}
+
+/* Floating Action Button */
+.flow-fab {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background-color: #2196f3;
+  color: white;
+  font-size: 24px;
+  border: none;
+  box-shadow: 0 3px 5px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.flow-fab:hover {
+  background-color: #1976d2;
+  transform: scale(1.05);
+}
+
+.flow-fab:active {
+  transform: scale(0.95);
+}
+
+/* Controls toggle button */
+.flow-control-toggle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: white;
+  border: 1px solid #ddd;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.flow-control-toggle:hover {
+  background-color: #f5f5f5;
+}
+
+/* Flow panels */
+.flow-panel {
+  padding: 0;
+  margin: 10px;
+}
+
+/* Node control panel */
+.flow-node-controls {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  padding: 12px;
+  margin-top: 10px;
+  width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid #eee;
+}
+
+.node-controls-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 5px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid #eee;
+}
+
+/* Extended controls panel */
+.flow-controls-panel {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  padding: 15px;
+  margin-top: 10px;
+  width: 250px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid #eee;
+}
+
+.controls-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 5px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #eee;
+}
+
+.controls-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.controls-info {
+  font-size: 12px;
+  color: #555;
+}
+
+.controls-info p {
+  margin: 0 0 5px 0;
+}
+
+.controls-info ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.controls-info li {
+  margin-bottom: 3px;
+}
+
+/* Control buttons */
+.control-btn {
+  padding: 6px 10px;
+  border-radius: 4px;
+  background-color: #f5f5f5;
+  border: 1px solid #ddd;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+}
+
+.control-btn:hover:not(:disabled) {
+  background-color: #e5e5e5;
+}
+
+.control-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.delete-btn {
+  background-color: #ffebee;
+  color: #d32f2f;
+  border-color: #ffcdd2;
+}
+
+.delete-btn:hover {
+  background-color: #ffcdd2;
+}
+
+/* Media Queries for Responsive Design */
+@media (max-width: 768px) {
+  .flow-fab {
+    width: 48px;
+    height: 48px;
+    font-size: 20px;
+  }
+  
+  .flow-controls-panel {
+    width: 220px;
+  }
+} 
