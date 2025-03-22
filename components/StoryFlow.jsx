@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   ReactFlow,
   MiniMap,
@@ -103,6 +103,9 @@ const StoryFlow = ({ storylineId }) => {
     removeEdge: removeDbEdge
   } = useStoryStore();
 
+  // Reference to the file input element for importing
+  const fileInputRef = useRef(null);
+
   // Load events from the database when storyline changes
   useEffect(() => {
     const fetchEvents = async () => {
@@ -111,24 +114,51 @@ const StoryFlow = ({ storylineId }) => {
       try {
         // Get events from the database
         const dbEvents = await loadEvents(storylineId);
-        setAllEvents(dbEvents);
+        
+        // Convert any events with old-format options if needed
+        for (const event of dbEvents) {
+          if (event.options) {
+            // Check if the options array contains string values directly
+            const needsConversion = event.options.some(opt => typeof opt === 'string');
+            
+            if (needsConversion) {
+              // Convert old format (array of strings) to new format (array of objects)
+              const newOptions = event.options.map((opt, index) => {
+                if (typeof opt === 'string') {
+                  return {
+                    text: opt,
+                    nextEventId: event.links && event.links[index] ? event.links[index] : null
+                  };
+                }
+                return opt;
+              });
+              
+              // Update the event with the new options format
+              await updateEvent(event.id, { options: newOptions });
+            }
+          }
+        }
+        
+        // Get the fresh data after potential updates
+        const updatedEvents = await loadEvents(storylineId);
+        setAllEvents(updatedEvents);
         
         // Convert events to ReactFlow nodes
-        const flowNodes = dbEvents.map(event => ({
+        const flowNodes = updatedEvents.map(event => ({
           id: event.id,
           type: 'event',
           position: event.position || { x: 0, y: 0 },
           data: {
             ...event,
             isStarter: !!event.isStarter,
-            allEvents: dbEvents
+            allEvents: updatedEvents
           }
         }));
         
         // Create edges from options
         const flowEdges = [];
         
-        dbEvents.forEach(event => {
+        updatedEvents.forEach(event => {
           // Add edges from options
           if (event.options && event.options.length > 0) {
             event.options.forEach((option, index) => {
@@ -165,7 +195,7 @@ const StoryFlow = ({ storylineId }) => {
     };
     
     fetchEvents();
-  }, [storylineId, loadEvents, setNodes, setEdges]);
+  }, [storylineId, loadEvents, setNodes, setEdges, updateEvent]);
 
   // Handle connections between nodes
   const onConnect = useCallback(async (params) => {
@@ -485,6 +515,230 @@ const StoryFlow = ({ storylineId }) => {
     setEditingNodeData(node.data);
   };
 
+  // Export storyline to JSON
+  const exportToJson = () => {
+    if (!storylineId || !allEvents || allEvents.length === 0) {
+      alert('No events to export');
+      return;
+    }
+    
+    try {
+      // Create a deep copy of the events to avoid modifying the original data
+      const eventsToExport = JSON.parse(JSON.stringify(allEvents));
+      
+      // Get the current node positions from the flow
+      const nodePositions = {};
+      nodes.forEach(node => {
+        nodePositions[node.id] = node.position;
+      });
+      
+      // Format the data for export with the new simplified format
+      const formattedEvents = eventsToExport.map(event => {
+        // Keep all the important fields
+        const { 
+          id, 
+          title, 
+          content, 
+          options, 
+          isStarter, 
+          storylineId
+        } = event;
+        
+        // Use the current position from the flow
+        const position = nodePositions[id] || event.position || { x: 0, y: 0 };
+        
+        // Convert options to simple text array and create corresponding links array
+        const optionTexts = [];
+        const optionLinks = [];
+        
+        if (options && options.length > 0) {
+          options.forEach(option => {
+            // Add the option text to the options array
+            optionTexts.push(option.text);
+            
+            // Add the corresponding nextEventId to the links array (null if not connected)
+            optionLinks.push(option.nextEventId || null);
+          });
+        }
+        
+        return {
+          id,
+          title,
+          content,
+          options: optionTexts,
+          links: optionLinks,
+          isStarter: !!isStarter,
+          storylineId,
+          position
+        };
+      });
+      
+      // Create a Blob with the JSON data
+      const jsonString = JSON.stringify(formattedEvents, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      
+      // Create a download link
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `storyline-${storylineId}.json`;
+      
+      // Trigger the download
+      document.body.appendChild(a);
+      a.click();
+      
+      // Clean up
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      console.log('Storyline exported successfully');
+    } catch (error) {
+      console.error('Error exporting storyline:', error);
+      alert('Error exporting storyline. Check console for details.');
+    }
+  };
+
+  // Import storyline from JSON
+  const importFromJson = async (event) => {
+    if (!storylineId) {
+      alert('Please select a storyline first');
+      return;
+    }
+    
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    try {
+      // Read the file
+      const fileContent = await file.text();
+      const importedEvents = JSON.parse(fileContent);
+      
+      if (!Array.isArray(importedEvents) || importedEvents.length === 0) {
+        throw new Error('Invalid file format. Expected an array of events.');
+      }
+      
+      // Ask for confirmation before importing
+      if (!window.confirm(`Import ${importedEvents.length} events? This will replace your current events in this storyline.`)) {
+        // Reset the file input
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+        return;
+      }
+      
+      // Delete all existing events in this storyline
+      const existingEvents = await loadEvents(storylineId);
+      for (const event of existingEvents) {
+        await deleteEvent(event.id);
+      }
+      
+      // Import all events
+      for (const event of importedEvents) {
+        // Make sure each event belongs to the current storyline
+        const eventToImport = {
+          ...event,
+          storylineId
+        };
+        
+        // Convert the simplified options/links format to the internal format
+        if (Array.isArray(event.options) && Array.isArray(event.links)) {
+          // Create option objects with text and nextEventId properties
+          const formattedOptions = event.options.map((text, index) => ({
+            text,
+            nextEventId: event.links[index] || null
+          }));
+          
+          eventToImport.options = formattedOptions;
+        } else if (Array.isArray(event.options)) {
+          // Handle case where we have options but no links
+          eventToImport.options = event.options.map(opt => {
+            // Check if opt is already in the complex format
+            if (typeof opt === 'object' && opt.text) {
+              return opt;
+            }
+            return { text: opt, nextEventId: null };
+          });
+        }
+        
+        // Create the event in the database
+        await createEvent(storylineId, eventToImport);
+      }
+      
+      // Reload the events
+      const dbEvents = await loadEvents(storylineId);
+      setAllEvents(dbEvents);
+      
+      // Update the nodes with fresh data
+      const flowNodes = dbEvents.map(event => ({
+        id: event.id,
+        type: 'event',
+        position: event.position || { x: 0, y: 0 },
+        data: {
+          ...event,
+          isStarter: !!event.isStarter,
+          allEvents: dbEvents
+        }
+      }));
+      
+      // Create edges from options
+      const flowEdges = [];
+      
+      dbEvents.forEach(event => {
+        // Add edges from options
+        if (event.options && event.options.length > 0) {
+          event.options.forEach((option, index) => {
+            if (option.nextEventId) {
+              flowEdges.push({
+                id: `edge-option-${event.id}-${option.nextEventId}-${index}`,
+                source: event.id,
+                target: option.nextEventId,
+                sourceHandle: `option-${index}`,
+                targetHandle: 'target',
+                type: 'smoothstep',
+                animated: true,
+                style: { stroke: '#2196f3' },
+                markerEnd: {
+                  type: MarkerType.ArrowClosed,
+                  color: '#2196f3'
+                },
+                data: { 
+                  optionText: option.text,
+                  optionIndex: index 
+                }
+              });
+            }
+          });
+        }
+      });
+      
+      setNodes(flowNodes);
+      setEdges(flowEdges);
+      setSelectedNode(null);
+      
+      // Reset the file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      
+      alert('Storyline imported successfully!');
+    } catch (error) {
+      console.error('Error importing storyline:', error);
+      alert(`Error importing storyline: ${error.message}`);
+      
+      // Reset the file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+  
+  // Trigger file input click
+  const handleImportClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
   return (
     <div className="story-flow-container">
       <ReactFlow
@@ -522,6 +776,31 @@ const StoryFlow = ({ storylineId }) => {
           >
             +
           </button>
+          
+          <button 
+            className="flow-export-btn"
+            onClick={exportToJson}
+            title="Export to JSON"
+          >
+            💾
+          </button>
+          
+          <button 
+            className="flow-import-btn"
+            onClick={handleImportClick}
+            title="Import from JSON"
+          >
+            📂
+          </button>
+          
+          {/* Hidden file input for importing */}
+          <input 
+            type="file" 
+            ref={fileInputRef}
+            style={{ display: 'none' }} 
+            accept=".json"
+            onChange={importFromJson}
+          />
         </Panel>
 
         {/* Control panel button */}
@@ -584,6 +863,20 @@ const StoryFlow = ({ storylineId }) => {
                   Create New Event
                 </button>
                 
+                <button 
+                  className="control-btn"
+                  onClick={exportToJson}
+                >
+                  Export to JSON
+                </button>
+                
+                <button 
+                  className="control-btn"
+                  onClick={handleImportClick}
+                >
+                  Import from JSON
+                </button>
+                
                 <div className="controls-info">
                   <p><strong>Tips:</strong></p>
                   <ul>
@@ -593,7 +886,12 @@ const StoryFlow = ({ storylineId }) => {
                     <li>Blue lines represent option connections</li>
                     <li>Events accept input connections on the left side</li>
                     <li>Options output connections from the right side</li>
+                    <li>Export your storyline to save as JSON</li>
+                    <li>Import a JSON file to restore a storyline</li>
                   </ul>
+                  
+                  <p><strong>JSON Format:</strong></p>
+                  <p>Events are exported with options as text strings and links array for connections. The index in options matches the index in links.</p>
                 </div>
               </div>
             </div>

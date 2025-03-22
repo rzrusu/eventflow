@@ -161,6 +161,50 @@
   transform: scale(1.1);
 }
 
+/* Export button styling */
+.flow-export-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+}
+
+.flow-export-btn:hover {
+  background-color: #43a047;
+  transform: scale(1.1);
+}
+
+/* Import button styling */
+.flow-import-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #ff9800;
+  color: white;
+  border: none;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+}
+
+.flow-import-btn:hover {
+  background-color: #f57c00;
+  transform: scale(1.1);
+}
+
 .flow-control-toggle {
   width: 36px;
   height: 36px;
@@ -267,7 +311,7 @@
 
 /* Media Queries for Responsive Design */
 @media (max-width: 768px) {
-  .flow-fab {
+  .flow-fab, .flow-export-btn, .flow-import-btn {
     width: 48px;
     height: 48px;
     font-size: 20px;
