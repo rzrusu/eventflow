@@ -18,53 +18,75 @@ import EventEditor from './EventEditor';
 
 // Custom node for an event
 const EventNode = ({ data }) => {
-  // Helper function to find connected event title
-  const getConnectedEventTitle = (eventId) => {
-    if (!eventId || !data.allEvents) return 'Unknown Event';
-    const connectedEvent = data.allEvents.find(event => event.id === eventId);
-    return connectedEvent ? connectedEvent.title : 'Unknown Event';
+  // Helper function to summarize option connections
+  const getOptionConnectionSummary = (option) => {
+    if (!option.targets || option.targets.length === 0) {
+      return { isConnected: false, info: 'Not connected' };
+    } else if (option.targets.length === 1) {
+      const targetEvent = data.allEvents?.find(e => e.id === option.targets[0].eventId);
+      const probability = option.targets[0].probability || 1;
+      const probabilityText = probability === 1 ? '' : ` (${Math.round(probability * 100)}%)`;
+      return {
+        isConnected: true,
+        info: targetEvent ? `Connected to: ${targetEvent.title}${probabilityText}` : 'Connected'
+      };
+    } else {
+      return {
+        isConnected: true,
+        info: `Connected to ${option.targets.length} events`
+      };
+    }
   };
-  
+
   return (
     <div className={`event-node ${data.isStarter ? 'starter-event' : ''}`}>
-      {/* Input handle on the left side of the node */}
-      <Handle 
-        type="target" 
-        position={Position.Left} 
-        id="target" 
-        className="event-handle event-input-handle"
-      />
-      
-      <div className="event-node-header">
-        <strong>{data.title || 'New Event'}</strong>
+      <div className="event-title">
+        {data.title}
         {data.isStarter && <span className="starter-badge">Starter</span>}
       </div>
-      <div className="event-node-content">
-        <p>{data.content || 'Event content...'}</p>
+      <div className="event-content">
+        {data.content && data.content.substring(0, 100)}
+        {data.content && data.content.length > 100 ? '...' : ''}
       </div>
-      <div className="event-node-options">
-        {data.options && data.options.map((option, index) => (
-          <div 
-            key={index} 
-            className={`event-option ${option.nextEventId ? 'has-connection' : ''}`}
-            title={option.nextEventId ? `Connected to: ${getConnectedEventTitle(option.nextEventId)}` : 'Drag to connect'}
-          >
-            <div className="option-text">{option.text}</div>
-            {option.nextEventId && <span className="option-connection-indicator">→</span>}
-            
-            {/* Output handle for each option */}
-            <Handle
-              type="source"
-              position={Position.Right}
-              id={`option-${index}`}
-              className="event-handle option-handle"
-              style={{ top: `${(index * 30) + 15}px` }}
-            />
-          </div>
-        ))}
+      <div className="event-options">
+        {data.options && data.options.map((option, index) => {
+          const connectionSummary = getOptionConnectionSummary(option);
+          return (
+            <div
+              key={index}
+              className={`event-option ${connectionSummary.isConnected ? 'event-option-connected' : ''}`}
+              title={connectionSummary.info}
+            >
+              <div className="option-text">{option.text}</div>
+              {connectionSummary.isConnected && (
+                <div className="option-connection-indicator">
+                  {option.targets && option.targets.length > 1 
+                    ? `${option.targets.length} paths` 
+                    : '→'}
+                </div>
+              )}
+              <Handle
+                type="source"
+                position={Position.Right}
+                id={`option-${index}`}
+                className="option-handle"
+                style={{ 
+                  right: -4, 
+                  top: '50%', 
+                  background: connectionSummary.isConnected ? '#2196f3' : '#ddd',
+                  border: connectionSummary.isConnected ? '2px solid #1565c0' : '2px solid #bbb'
+                }}
+              />
+            </div>
+          );
+        })}
       </div>
-      
-      {/* Removed the default output handle that was at the bottom */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="target"
+        style={{ left: -4, background: '#ff9800', border: '2px solid #ef6c00' }}
+      />
     </div>
   );
 };
@@ -106,6 +128,11 @@ const StoryFlow = ({ storylineId }) => {
   // Reference to the file input element for importing
   const fileInputRef = useRef(null);
 
+  // State for option probability editing
+  const [editingProbabilities, setEditingProbabilities] = useState(false);
+  const [selectedOption, setSelectedOption] = useState(null);
+  const [optionTargets, setOptionTargets] = useState([]);
+
   // Load events from the database when storyline changes
   useEffect(() => {
     const fetchEvents = async () => {
@@ -118,23 +145,61 @@ const StoryFlow = ({ storylineId }) => {
         // Convert any events with old-format options if needed
         for (const event of dbEvents) {
           if (event.options) {
-            // Check if the options array contains string values directly
-            const needsConversion = event.options.some(opt => typeof opt === 'string');
+            let needsUpdate = false;
+            const updatedOptions = [...event.options];
             
-            if (needsConversion) {
-              // Convert old format (array of strings) to new format (array of objects)
-              const newOptions = event.options.map((opt, index) => {
-                if (typeof opt === 'string') {
-                  return {
-                    text: opt,
-                    nextEventId: event.links && event.links[index] ? event.links[index] : null
+            // Convert string options to objects
+            const hasStringOptions = event.options.some(opt => typeof opt === 'string');
+            if (hasStringOptions) {
+              needsUpdate = true;
+              
+              // Update string options to objects
+              for (let i = 0; i < updatedOptions.length; i++) {
+                if (typeof updatedOptions[i] === 'string') {
+                  updatedOptions[i] = {
+                    text: updatedOptions[i],
+                    targets: []
                   };
                 }
-                return opt;
-              });
+              }
+            }
+            
+            // Convert nextEventId to targets array
+            const hasNextEventId = event.options.some(opt => 
+              typeof opt === 'object' && opt.nextEventId !== undefined
+            );
+            
+            if (hasNextEventId) {
+              needsUpdate = true;
               
+              // Update options with nextEventId to use targets array
+              for (let i = 0; i < updatedOptions.length; i++) {
+                const opt = updatedOptions[i];
+                if (typeof opt === 'object' && opt.nextEventId !== undefined) {
+                  // Initialize targets array if needed
+                  if (!opt.targets) {
+                    opt.targets = [];
+                  }
+                  
+                  // Add nextEventId as a target if it's not null and not already in targets
+                  if (opt.nextEventId && !opt.targets.some(t => t.eventId === opt.nextEventId)) {
+                    opt.targets.push({
+                      eventId: opt.nextEventId,
+                      probability: 1
+                    });
+                  }
+                  
+                  // Remove the nextEventId property
+                  const { nextEventId, ...optWithoutNextEventId } = opt;
+                  updatedOptions[i] = optWithoutNextEventId;
+                }
+              }
+            }
+            
+            // Update the event if changes were made
+            if (needsUpdate) {
               // Update the event with the new options format
-              await updateEvent(event.id, { options: newOptions });
+              await updateEvent(event.id, { options: updatedOptions });
             }
           }
         }
@@ -144,16 +209,19 @@ const StoryFlow = ({ storylineId }) => {
         setAllEvents(updatedEvents);
         
         // Convert events to ReactFlow nodes
-        const flowNodes = updatedEvents.map(event => ({
-          id: event.id,
-          type: 'event',
-          position: event.position || { x: 0, y: 0 },
-          data: {
-            ...event,
-            isStarter: !!event.isStarter,
-            allEvents: updatedEvents
-          }
-        }));
+        const flowNodes = updatedEvents.map(event => {
+          console.log(`Creating node with id: ${event.id}`);
+          return {
+            id: event.id,
+            type: 'event',
+            position: event.position || { x: 0, y: 0 },
+            data: {
+              ...event,
+              isStarter: !!event.isStarter,
+              allEvents: updatedEvents
+            }
+          };
+        });
         
         // Create edges from options
         const flowEdges = [];
@@ -162,24 +230,56 @@ const StoryFlow = ({ storylineId }) => {
           // Add edges from options
           if (event.options && event.options.length > 0) {
             event.options.forEach((option, index) => {
-              if (option.nextEventId) {
+              // Check if option has targets array with connections
+              if (option.targets && option.targets.length > 0) {
+                // Create an edge for each target
+                option.targets.forEach(target => {
+                  if (target.eventId) {
+                    // Check if target node exists
+                    const targetNodeExists = updatedEvents.some(e => e.id === target.eventId);
+                    if (!targetNodeExists) {
+                      console.warn(`Target node ${target.eventId} does not exist, skipping edge creation`);
+                      return;
+                    }
+                    
+                    // Calculate probability percentage for the label
+                    const probability = target.probability || 1;
+                    const probabilityText = Math.round(probability * 100);
+                    
+                    // Debug edge creation
+                    console.log(`Creating edge from ${event.id} to ${target.eventId} with sourceHandle: option-${index} and targetHandle: target`);
+                    
+                    flowEdges.push({
+                      id: `edge-option-${event.id}-${target.eventId}-${index}`,
+                      source: event.id,
+                      target: target.eventId,
+                      sourceHandle: `option-${index}`,
+                      targetHandle: 'target',
+                      type: 'default',
+                      animated: true,
+                      label: `${probabilityText}%`
+                    });
+                  }
+                });
+              }
+              // Handle legacy nextEventId for backward compatibility
+              else if (option.nextEventId) {
+                // Check if target node exists
+                const targetNodeExists = updatedEvents.some(e => e.id === option.nextEventId);
+                if (!targetNodeExists) {
+                  console.warn(`Target node ${option.nextEventId} does not exist, skipping legacy edge creation`);
+                  return;
+                }
+                
                 flowEdges.push({
                   id: `edge-option-${event.id}-${option.nextEventId}-${index}`,
                   source: event.id,
                   target: option.nextEventId,
                   sourceHandle: `option-${index}`,
                   targetHandle: 'target',
-                  type: 'smoothstep',
+                  type: 'default',
                   animated: true,
-                  style: { stroke: '#2196f3' },
-                  markerEnd: {
-                    type: MarkerType.ArrowClosed,
-                    color: '#2196f3'
-                  },
-                  data: { 
-                    optionText: option.text,
-                    optionIndex: index 
-                  }
+                  label: '100%'
                 });
               }
             });
@@ -197,64 +297,193 @@ const StoryFlow = ({ storylineId }) => {
     fetchEvents();
   }, [storylineId, loadEvents, setNodes, setEdges, updateEvent]);
 
-  // Handle connections between nodes
-  const onConnect = useCallback(async (params) => {
-    console.log('Connection params:', params);
+  // Handle connecting nodes
+  const onConnect = useCallback(async (connection) => {
+    const { source, target, sourceHandle, targetHandle } = connection;
     
-    // All connections now come from option handles since we removed the bottom handle
-    const isOptionConnection = params.sourceHandle && params.sourceHandle.startsWith('option-');
+    console.log("Connection attempt:", { source, target, sourceHandle, targetHandle });
     
-    if (isOptionConnection) {
-      const optionIndex = parseInt(params.sourceHandle.split('-')[1], 10);
-      const sourceNode = nodes.find(n => n.id === params.source);
-      
-      if (sourceNode && sourceNode.data.options && sourceNode.data.options[optionIndex]) {
-        // Update the option's nextEventId
-        const updatedOptions = [...sourceNode.data.options];
-        updatedOptions[optionIndex] = {
-          ...updatedOptions[optionIndex],
-          nextEventId: params.target
-        };
+    if (!source || !target) {
+      console.error("Missing source or target in connection:", connection);
+      return;
+    }
+    
+    // Check if connection is from an option handle (source)
+    if (sourceHandle && sourceHandle.startsWith('option-')) {
+      try {
+        const optionIndex = parseInt(sourceHandle.replace('option-', ''), 10);
         
-        // Collect all nextEventIds for the links array
-        const links = updatedOptions
-          .map(opt => opt.nextEventId)
-          .filter(id => id !== null && id !== undefined);
+        // Get the source node
+        const sourceNode = nodes.find(n => n.id === source);
+        if (!sourceNode || !sourceNode.data || !sourceNode.data.options || !sourceNode.data.options[optionIndex]) {
+          return;
+        }
+        
+        // Initialize targets array if it doesn't exist
+        if (!sourceNode.data.options[optionIndex].targets) {
+          sourceNode.data.options[optionIndex].targets = [];
+        }
+        
+        // Check if target already exists
+        const existingTargetIndex = sourceNode.data.options[optionIndex].targets.findIndex(
+          t => t.eventId === target
+        );
+        
+        // If the target doesn't exist, add it with default probability
+        if (existingTargetIndex === -1) {
+          // Calculate default probability (equal distribution)
+          const newProbability = 1 / (sourceNode.data.options[optionIndex].targets.length + 1);
           
+          // Add the new target
+          sourceNode.data.options[optionIndex].targets.push({
+            eventId: target,
+            probability: newProbability
+          });
+          
+          // Normalize probabilities for all targets
+          sourceNode.data.options[optionIndex].targets = sourceNode.data.options[optionIndex].targets.map(t => ({
+            ...t,
+            probability: newProbability
+          }));
+        } else {
+          // Target already exists, don't create duplicate connection
+          return;
+        }
+        
+        // Create links array with unique eventIds from all targets
+        const links = [];
+        sourceNode.data.options.forEach(opt => {
+          if (opt.targets && opt.targets.length > 0) {
+            opt.targets.forEach(target => {
+              if (target.eventId && !links.includes(target.eventId)) {
+                links.push(target.eventId);
+              }
+            });
+          }
+        });
+        
         // Update the event in the database
-        await updateEvent(params.source, { 
-          options: updatedOptions,
+        await updateEvent(source, {
+          options: sourceNode.data.options,
           links
         });
         
-        // Create a visual edge
+        // Get the target event title for the edge label
+        const targetEvent = allEvents.find(e => e.id === target);
+        const targetTitle = targetEvent ? targetEvent.title : 'Unknown Event';
+        
+        // Create an edge
+        const edgeId = `edge-option-${source}-${target}-${optionIndex}`;
+        const probability = sourceNode.data.options[optionIndex].targets.find(t => t.eventId === target)?.probability || 0;
+        const probabilityText = Math.round(probability * 100);
+        
+        // Create edge with probability label
         const edge = {
-          id: `edge-option-${params.source}-${params.target}-${optionIndex}`,
-          source: params.source,
-          target: params.target,
-          sourceHandle: params.sourceHandle,
-          targetHandle: params.targetHandle || 'target',
-          type: 'smoothstep',
+          id: edgeId,
+          source,
+          target,
+          sourceHandle,
+          targetHandle,
+          type: 'default',
           animated: true,
-          style: { stroke: '#2196f3' },
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            color: '#2196f3'
-          },
-          data: { 
-            optionText: updatedOptions[optionIndex].text,
-            optionIndex 
-          }
+          label: `${probabilityText}%`
         };
         
-        setEdges(eds => addEdge(edge, eds));
+        // Add the edge to the flow
+        setEdges(prevEdges => [...prevEdges, edge]);
+        
+        // Update the source node in the flow to reflect the new connection
+        setNodes(prevNodes => prevNodes.map(node => 
+          node.id === source 
+            ? { ...node, data: { ...node.data, options: sourceNode.data.options } } 
+            : node
+        ));
+      } catch (error) {
+        console.error('Error connecting nodes:', error);
+        alert('Error connecting nodes. Please try again.');
       }
-    } else {
-      // If we get here, it's a non-option connection (which shouldn't happen with our new design)
-      // But we'll keep this as a fallback just in case
-      console.warn('Unexpected connection type', params);
     }
-  }, [nodes, setEdges, updateEvent]);
+  }, [nodes, allEvents, setEdges, setNodes, updateEvent]);
+
+  // Handle deleting edges
+  const onEdgeDelete = useCallback(async (edge) => {
+    console.log("Attempting to delete edge:", edge);
+    
+    if (!edge || !edge.id.startsWith('edge-option')) {
+      console.error("Invalid edge for deletion:", edge);
+      return;
+    }
+    
+    // Parse edge ID to get source, target, and option index
+    // Format: edge-option-${source}-${target}-${optionIndex}
+    const [, , source, target, optionIndexStr] = edge.id.split('-');
+    const optionIndex = parseInt(optionIndexStr, 10);
+    
+    // Get the source node
+    const sourceNode = nodes.find(n => n.id === source);
+    if (!sourceNode || !sourceNode.data || !sourceNode.data.options || !sourceNode.data.options[optionIndex]) {
+      return;
+    }
+    
+    // Check if option has targets
+    if (!sourceNode.data.options[optionIndex].targets || sourceNode.data.options[optionIndex].targets.length === 0) {
+      return;
+    }
+    
+    try {
+      // Remove the target from the targets array
+      const updatedTargets = sourceNode.data.options[optionIndex].targets.filter(
+        t => t.eventId !== target
+      );
+      
+      // Update the option's targets array
+      const updatedOptions = [...sourceNode.data.options];
+      updatedOptions[optionIndex] = {
+        ...updatedOptions[optionIndex],
+        targets: updatedTargets
+      };
+      
+      // If there are remaining targets, normalize their probabilities
+      if (updatedTargets.length > 0) {
+        const equalProbability = 1 / updatedTargets.length;
+        updatedOptions[optionIndex].targets = updatedTargets.map(target => ({
+          ...target,
+          probability: equalProbability
+        }));
+      }
+      
+      // Create links array with unique eventIds from all targets
+      const links = [];
+      updatedOptions.forEach(opt => {
+        if (opt.targets && opt.targets.length > 0) {
+          opt.targets.forEach(target => {
+            if (target.eventId && !links.includes(target.eventId)) {
+              links.push(target.eventId);
+            }
+          });
+        }
+      });
+      
+      // Update the event in the database
+      await updateEvent(source, {
+        options: updatedOptions,
+        links
+      });
+      
+      // Update the source node in the flow
+      setNodes(prevNodes => prevNodes.map(node => 
+        node.id === source 
+          ? { ...node, data: { ...node.data, options: updatedOptions } } 
+          : node
+      ));
+      
+      // Remove the edge
+      setEdges(prevEdges => prevEdges.filter(e => e.id !== edge.id));
+    } catch (error) {
+      console.error('Error removing connection:', error);
+      alert('Error removing connection. Please try again.');
+    }
+  }, [nodes, setNodes, setEdges, updateEvent]);
   
   // Handle node drag
   const onNodeDragStop = useCallback(async (event, node) => {
@@ -278,34 +507,6 @@ const StoryFlow = ({ storylineId }) => {
     setSelectedNode(null);
   };
   
-  // Handle edge removal
-  const onEdgeDelete = async (edge) => {
-    // All edges are now option edges
-    if (edge.id.startsWith('edge-option')) {
-      // Find the source node and option index
-      const [_, __, sourceId, targetId, optionIndex] = edge.id.split('-');
-      const sourceNode = nodes.find(n => n.id === sourceId);
-      if (sourceNode && sourceNode.data.options && sourceNode.data.options[optionIndex]) {
-        // Remove the option connection
-        const updatedOptions = [...sourceNode.data.options];
-        updatedOptions[optionIndex] = {
-          ...updatedOptions[optionIndex],
-          nextEventId: null
-        };
-        
-        // Update the node
-        await updateEvent(sourceId, { 
-          options: updatedOptions,
-          links: updatedOptions
-            .map(opt => opt.nextEventId)
-            .filter(id => id !== null && id !== undefined)
-        });
-      }
-    } else {
-      console.warn('Unknown edge type:', edge.id);
-    }
-  };
-
   // Create a new event node
   const createEventNode = async () => {
     if (!storylineId) return;
@@ -396,11 +597,11 @@ const StoryFlow = ({ storylineId }) => {
     const node = nodes.find(n => n.id === selectedNode);
     if (!node) return;
     
-    // Create a new option
+    // Create a new option with the new structure
     const options = [...(node.data.options || [])];
     options.push({
       text: `Option ${options.length + 1}`,
-      nextEventId: null
+      targets: [] // Initialize with empty targets array instead of nextEventId
     });
     
     // Update the event in the database
@@ -440,17 +641,17 @@ const StoryFlow = ({ storylineId }) => {
     setSelectedNode(null);
   };
   
-  // Handle event editor close
+  // Handle closing the event editor and refreshing nodes
   const handleEventEditorClose = async () => {
     setEditingNodeId(null);
     setEditingNodeData(null);
     
-    // Reload events to get the updated data
-    if (storylineId) {
+    try {
+      // Reload events from the database
       const dbEvents = await loadEvents(storylineId);
       setAllEvents(dbEvents);
       
-      // Update the nodes with fresh data
+      // Update nodes with fresh data
       setNodes(prevNodes => 
         prevNodes.map(node => {
           const updatedEvent = dbEvents.find(e => e.id === node.id);
@@ -460,7 +661,7 @@ const StoryFlow = ({ storylineId }) => {
               data: {
                 ...updatedEvent,
                 isStarter: !!updatedEvent.isStarter,
-                allEvents: dbEvents  // Update allEvents for each node
+                allEvents: dbEvents
               }
             };
           }
@@ -468,31 +669,63 @@ const StoryFlow = ({ storylineId }) => {
         })
       );
       
-      // Rebuild edges - only from options now, since we removed the bottom source handle
+      // Rebuild edges
       const newEdges = [];
       
       dbEvents.forEach(event => {
         // Add edges from options
         if (event.options && event.options.length > 0) {
           event.options.forEach((option, index) => {
-            if (option.nextEventId) {
+            // Check if option has targets array with connections
+            if (option.targets && option.targets.length > 0) {
+              // Create an edge for each target
+              option.targets.forEach(target => {
+                if (target.eventId) {
+                  // Check if target node exists
+                  const targetNodeExists = dbEvents.some(e => e.id === target.eventId);
+                  if (!targetNodeExists) {
+                    console.warn(`Target node ${target.eventId} does not exist, skipping edge creation`);
+                    return;
+                  }
+                  
+                  // Calculate probability percentage for the label
+                  const probability = target.probability || 1;
+                  const probabilityText = Math.round(probability * 100);
+                  
+                  // Debug edge creation in handleEventEditorClose
+                  console.log(`Creating edge after edit: ${event.id} to ${target.eventId}, sourceHandle: option-${index}, targetHandle: target`);
+                  
+                  newEdges.push({
+                    id: `edge-option-${event.id}-${target.eventId}-${index}`,
+                    source: event.id,
+                    target: target.eventId,
+                    sourceHandle: `option-${index}`,
+                    targetHandle: 'target',
+                    type: 'default',
+                    animated: true,
+                    label: `${probabilityText}%`
+                  });
+                }
+              });
+            }
+            // Handle legacy nextEventId for backward compatibility
+            else if (option.nextEventId) {
+              // Check if target node exists
+              const targetNodeExists = dbEvents.some(e => e.id === option.nextEventId);
+              if (!targetNodeExists) {
+                console.warn(`Target node ${option.nextEventId} does not exist, skipping legacy edge creation`);
+                return;
+              }
+              
               newEdges.push({
                 id: `edge-option-${event.id}-${option.nextEventId}-${index}`,
                 source: event.id,
                 target: option.nextEventId,
                 sourceHandle: `option-${index}`,
                 targetHandle: 'target',
-                type: 'smoothstep',
+                type: 'default',
                 animated: true,
-                style: { stroke: '#2196f3' },
-                markerEnd: {
-                  type: MarkerType.ArrowClosed,
-                  color: '#2196f3'
-                },
-                data: { 
-                  optionText: option.text,
-                  optionIndex: index 
-                }
+                label: '100%'
               });
             }
           });
@@ -500,6 +733,8 @@ const StoryFlow = ({ storylineId }) => {
       });
       
       setEdges(newEdges);
+    } catch (error) {
+      console.error('Error refreshing flow after editing event:', error);
     }
   };
 
@@ -547,17 +782,40 @@ const StoryFlow = ({ storylineId }) => {
         // Use the current position from the flow
         const position = nodePositions[id] || event.position || { x: 0, y: 0 };
         
-        // Convert options to simple text array and create corresponding links array
+        // Convert options to simple text array and create corresponding links array with probabilities
         const optionTexts = [];
-        const optionLinks = [];
+        const optionTargets = [];
         
         if (options && options.length > 0) {
           options.forEach(option => {
             // Add the option text to the options array
             optionTexts.push(option.text);
             
-            // Add the corresponding nextEventId to the links array (null if not connected)
-            optionLinks.push(option.nextEventId || null);
+            // Add the targets for this option
+            if (option.targets && option.targets.length > 0) {
+              // Format targets with eventId and probability
+              optionTargets.push(option.targets.map(target => ({
+                eventId: target.eventId,
+                probability: target.probability
+              })));
+            } else {
+              // No targets for this option
+              optionTargets.push([]);
+            }
+          });
+        }
+        
+        // Create a links array with all unique target IDs for backward compatibility
+        const links = [];
+        if (options && options.length > 0) {
+          options.forEach(option => {
+            if (option.targets && option.targets.length > 0) {
+              option.targets.forEach(target => {
+                if (target.eventId && !links.includes(target.eventId)) {
+                  links.push(target.eventId);
+                }
+              });
+            }
           });
         }
         
@@ -566,7 +824,8 @@ const StoryFlow = ({ storylineId }) => {
           title,
           content,
           options: optionTexts,
-          links: optionLinks,
+          optionTargets, // New field to store target data with probabilities
+          links, // Keep links for backward compatibility
           isStarter: !!isStarter,
           storylineId,
           position
@@ -640,25 +899,91 @@ const StoryFlow = ({ storylineId }) => {
           storylineId
         };
         
-        // Convert the simplified options/links format to the internal format
-        if (Array.isArray(event.options) && Array.isArray(event.links)) {
-          // Create option objects with text and nextEventId properties
-          const formattedOptions = event.options.map((text, index) => ({
-            text,
-            nextEventId: event.links[index] || null
-          }));
-          
-          eventToImport.options = formattedOptions;
-        } else if (Array.isArray(event.options)) {
-          // Handle case where we have options but no links
-          eventToImport.options = event.options.map(opt => {
-            // Check if opt is already in the complex format
-            if (typeof opt === 'object' && opt.text) {
-              return opt;
-            }
-            return { text: opt, nextEventId: null };
+        // Convert the options format based on what's available in the imported data
+        let formattedOptions = [];
+        
+        // Case 1: We have optionTargets array (new format with probabilities)
+        if (Array.isArray(event.options) && Array.isArray(event.optionTargets) && 
+            event.options.length === event.optionTargets.length) {
+          formattedOptions = event.options.map((text, index) => {
+            const targets = event.optionTargets[index] || [];
+            return {
+              text,
+              targets
+            };
           });
         }
+        // Case 2: We have options and links arrays with matching indices (old format)
+        else if (Array.isArray(event.options) && Array.isArray(event.links)) {
+          formattedOptions = event.options.map((text, index) => {
+            const targets = [];
+            // If this option has a matching link (by index), create a target with 100% probability
+            if (event.links.length > index && event.links[index]) {
+              targets.push({
+                eventId: event.links[index],
+                probability: 1
+              });
+            }
+            return {
+              text,
+              targets
+            };
+          });
+        }
+        // Case 3: We have options as objects with nextEventId or targets (internal format)
+        else if (Array.isArray(event.options) && event.options.some(opt => typeof opt === 'object')) {
+          formattedOptions = event.options.map(opt => {
+            // Handle complex option objects
+            if (typeof opt === 'object') {
+              // Has targets array
+              if (opt.targets) {
+                return {
+                  text: opt.text,
+                  targets: opt.targets
+                };
+              }
+              // Has nextEventId (convert to targets array)
+              else if (opt.nextEventId) {
+                return {
+                  text: opt.text,
+                  targets: [{
+                    eventId: opt.nextEventId,
+                    probability: 1
+                  }]
+                };
+              }
+              // Just has text
+              else {
+                return {
+                  text: opt.text,
+                  targets: []
+                };
+              }
+            }
+            // Simple string option
+            else {
+              return {
+                text: opt,
+                targets: []
+              };
+            }
+          });
+        }
+        // Case 4: We have options as simple strings
+        else if (Array.isArray(event.options)) {
+          formattedOptions = event.options.map(opt => {
+            if (typeof opt === 'string') {
+              return {
+                text: opt,
+                targets: []
+              };
+            }
+            return opt;
+          });
+        }
+        
+        // Update the event with our formatted options
+        eventToImport.options = formattedOptions;
         
         // Create the event in the database
         await createEvent(storylineId, eventToImport);
@@ -669,16 +994,19 @@ const StoryFlow = ({ storylineId }) => {
       setAllEvents(dbEvents);
       
       // Update the nodes with fresh data
-      const flowNodes = dbEvents.map(event => ({
-        id: event.id,
-        type: 'event',
-        position: event.position || { x: 0, y: 0 },
-        data: {
-          ...event,
-          isStarter: !!event.isStarter,
-          allEvents: dbEvents
-        }
-      }));
+      const flowNodes = dbEvents.map(event => {
+        console.log(`Creating node with id: ${event.id}`);
+        return {
+          id: event.id,
+          type: 'event',
+          position: event.position || { x: 0, y: 0 },
+          data: {
+            ...event,
+            isStarter: !!event.isStarter,
+            allEvents: dbEvents
+          }
+        };
+      });
       
       // Create edges from options
       const flowEdges = [];
@@ -687,23 +1015,24 @@ const StoryFlow = ({ storylineId }) => {
         // Add edges from options
         if (event.options && event.options.length > 0) {
           event.options.forEach((option, index) => {
-            if (option.nextEventId) {
-              flowEdges.push({
-                id: `edge-option-${event.id}-${option.nextEventId}-${index}`,
-                source: event.id,
-                target: option.nextEventId,
-                sourceHandle: `option-${index}`,
-                targetHandle: 'target',
-                type: 'smoothstep',
-                animated: true,
-                style: { stroke: '#2196f3' },
-                markerEnd: {
-                  type: MarkerType.ArrowClosed,
-                  color: '#2196f3'
-                },
-                data: { 
-                  optionText: option.text,
-                  optionIndex: index 
+            // Create edges for each target in the targets array
+            if (option.targets && option.targets.length > 0) {
+              option.targets.forEach(target => {
+                if (target.eventId) {
+                  // Calculate probability percentage for the label
+                  const probability = target.probability || 1;
+                  const probabilityText = Math.round(probability * 100);
+                  
+                  flowEdges.push({
+                    id: `edge-option-${event.id}-${target.eventId}-${index}`,
+                    source: event.id,
+                    target: target.eventId,
+                    sourceHandle: `option-${index}`,
+                    targetHandle: 'target',
+                    type: 'default',
+                    animated: true,
+                    label: `${probabilityText}%`
+                  });
                 }
               });
             }
@@ -739,6 +1068,161 @@ const StoryFlow = ({ storylineId }) => {
     }
   };
 
+  // Edit option probabilities
+  const handleEditProbabilities = () => {
+    if (!selectedNode) return;
+    
+    // Find the node
+    const node = nodes.find(n => n.id === selectedNode);
+    if (!node || !node.data.options || node.data.options.length === 0) return;
+    
+    // Open the probability editor with the first option that has multiple targets
+    const optionWithMultipleTargets = node.data.options.findIndex(
+      opt => opt.targets && opt.targets.length > 1
+    );
+    
+    // If none have multiple targets, use the first option with at least one target
+    const optionWithTarget = node.data.options.findIndex(
+      opt => opt.targets && opt.targets.length > 0
+    );
+    
+    const optionIndex = optionWithMultipleTargets !== -1 ? 
+      optionWithMultipleTargets : optionWithTarget;
+    
+    if (optionIndex !== -1) {
+      setSelectedOption({
+        nodeId: selectedNode,
+        optionIndex,
+        option: node.data.options[optionIndex]
+      });
+      
+      setOptionTargets([...node.data.options[optionIndex].targets]);
+      setEditingProbabilities(true);
+    } else {
+      alert('This event has no options with connections. Create connections first by dragging from option handles to other events.');
+    }
+  };
+  
+  // Handle changing the selected option
+  const handleOptionChange = (e) => {
+    const optionIndex = parseInt(e.target.value, 10);
+    const node = nodes.find(n => n.id === selectedNode);
+    
+    if (node && node.data.options && node.data.options[optionIndex]) {
+      setSelectedOption({
+        nodeId: selectedNode,
+        optionIndex,
+        option: node.data.options[optionIndex]
+      });
+      
+      setOptionTargets([...node.data.options[optionIndex].targets]);
+    }
+  };
+  
+  // Update a target's probability
+  const updateTargetProbability = (targetIndex, value) => {
+    const newValue = parseFloat(value);
+    if (isNaN(newValue) || newValue < 0) return;
+    
+    const updatedTargets = [...optionTargets];
+    updatedTargets[targetIndex] = {
+      ...updatedTargets[targetIndex],
+      probability: newValue
+    };
+    
+    setOptionTargets(updatedTargets);
+  };
+  
+  // Normalize probabilities to sum to 1
+  const normalizeProbabilities = () => {
+    if (!optionTargets || optionTargets.length === 0) return;
+    
+    const sum = optionTargets.reduce((acc, target) => acc + (target.probability || 0), 0);
+    
+    if (sum === 0) {
+      // If all are zero, set equal probabilities
+      const equalProbability = 1 / optionTargets.length;
+      const normalizedTargets = optionTargets.map(target => ({
+        ...target,
+        probability: equalProbability
+      }));
+      setOptionTargets(normalizedTargets);
+    } else {
+      // Otherwise normalize to sum to 1
+      const normalizedTargets = optionTargets.map(target => ({
+        ...target,
+        probability: (target.probability || 0) / sum
+      }));
+      setOptionTargets(normalizedTargets);
+    }
+  };
+  
+  // Even distribution of probabilities
+  const evenDistribution = () => {
+    if (!optionTargets || optionTargets.length === 0) return;
+    
+    const equalProbability = 1 / optionTargets.length;
+    const updatedTargets = optionTargets.map(target => ({
+      ...target,
+      probability: equalProbability
+    }));
+    
+    setOptionTargets(updatedTargets);
+  };
+  
+  // Save probability changes
+  const saveProbabilityChanges = async () => {
+    if (!selectedOption) return;
+    
+    try {
+      // Normalize probabilities before saving
+      const sum = optionTargets.reduce((acc, target) => acc + (target.probability || 0), 0);
+      const normalizedTargets = optionTargets.map(target => ({
+        ...target,
+        probability: sum > 0 ? (target.probability || 0) / sum : 1 / optionTargets.length
+      }));
+      
+      // Get the current node and options
+      const node = nodes.find(n => n.id === selectedOption.nodeId);
+      if (!node) return;
+      
+      const updatedOptions = [...node.data.options];
+      
+      // Update the option's targets
+      updatedOptions[selectedOption.optionIndex] = {
+        ...updatedOptions[selectedOption.optionIndex],
+        targets: normalizedTargets
+      };
+      
+      // Collect all target eventIds for the links array
+      const links = [];
+      updatedOptions.forEach(opt => {
+        if (opt.targets && opt.targets.length > 0) {
+          opt.targets.forEach(target => {
+            if (target.eventId && !links.includes(target.eventId)) {
+              links.push(target.eventId);
+            }
+          });
+        }
+      });
+      
+      // Update the event in the database
+      await updateEvent(selectedOption.nodeId, {
+        options: updatedOptions,
+        links
+      });
+      
+      // Close the dialog
+      setEditingProbabilities(false);
+      
+      // Reload the edges to reflect new probabilities
+      await handleEventEditorClose();
+    } catch (error) {
+      console.error('Error saving probability changes:', error);
+      alert('Error saving changes. Please try again.');
+    }
+  };
+
   return (
     <div className="story-flow-container">
       <ReactFlow
@@ -760,8 +1244,7 @@ const StoryFlow = ({ storylineId }) => {
         nodesDraggable={true}
         elementsSelectable={true}
         selectNodesOnDrag={false}
-        connectionLineStyle={{ stroke: '#2196f3' }}
-        connectionLineType="smoothstep"
+        connectionLineType="default"
       >
         <Controls showInteractive={false} position="bottom-right" />
         <MiniMap nodeStrokeWidth={3} zoomable pannable position="bottom-left" />
@@ -841,6 +1324,14 @@ const StoryFlow = ({ storylineId }) => {
                 ✏️ Edit Event
               </button>
               
+              <button
+                className="control-btn"
+                onClick={handleEditProbabilities}
+                title="Edit Option Probabilities"
+              >
+                🎲 Edit Probabilities
+              </button>
+              
               <button 
                 className="control-btn delete-btn"
                 onClick={deleteSelectedNode}
@@ -859,39 +1350,51 @@ const StoryFlow = ({ storylineId }) => {
                 <button 
                   className="control-btn"
                   onClick={createEventNode}
+                  title="Create a new event node in the flow"
                 >
-                  Create New Event
+                  ➕ Create New Event
                 </button>
                 
                 <button 
                   className="control-btn"
                   onClick={exportToJson}
+                  title="Export this storyline to a JSON file"
                 >
-                  Export to JSON
+                  💾 Export to JSON
                 </button>
                 
                 <button 
                   className="control-btn"
                   onClick={handleImportClick}
+                  title="Import a storyline from a JSON file"
                 >
-                  Import from JSON
+                  📂 Import from JSON
                 </button>
                 
-                <div className="controls-info">
-                  <p><strong>Tips:</strong></p>
+                <div className="json-instructions">
+                  <strong>JSON Structure:</strong>
+                  <div>Each event has:</div>
                   <ul>
-                    <li>Click on a node to select it</li>
-                    <li>Double-click a node to edit its content</li>
-                    <li>Drag from an option's handle to another event to connect them</li>
-                    <li>Blue lines represent option connections</li>
-                    <li>Events accept input connections on the left side</li>
-                    <li>Options output connections from the right side</li>
-                    <li>Export your storyline to save as JSON</li>
-                    <li>Import a JSON file to restore a storyline</li>
+                    <li><code>title</code>: Event title</li>
+                    <li><code>content</code>: Event description</li>
+                    <li><code>options</code>: Array of text options</li>
+                    <li><code>optionTargets</code>: Array of target connections for each option
+                      <ul>
+                        <li>Each target has an <code>eventId</code> and <code>probability</code></li>
+                        <li>Probabilities determine the chance of following that path</li>
+                        <li>Multiple connections from a single option are possible</li>
+                      </ul>
+                    </li>
+                    <li><code>position</code>: X,Y coordinates for layout</li>
+                    <li><code>isStarter</code>: Set to true for the starting event</li>
                   </ul>
-                  
-                  <p><strong>JSON Format:</strong></p>
-                  <p>Events are exported with options as text strings and links array for connections. The index in options matches the index in links.</p>
+                  <div>To create connections with probabilities:</div>
+                  <ol>
+                    <li>Select an event and add options</li>
+                    <li>Drag from the option handle to other events</li>
+                    <li>Use the "Edit Probabilities" button to set chances</li>
+                    <li>Probability values will normalize to add up to 100%</li>
+                  </ol>
                 </div>
               </div>
             </div>
@@ -908,6 +1411,120 @@ const StoryFlow = ({ storylineId }) => {
             availableEvents={allEvents}
             onClose={handleEventEditorClose}
           />
+        </div>
+      )}
+      
+      {/* Probability Editor Modal */}
+      {editingProbabilities && selectedOption && (
+        <div className="modal-backdrop">
+          <div className="probability-editor">
+            <div className="probability-editor-header">
+              <h3>Edit Option Probabilities</h3>
+              <button 
+                className="close-btn"
+                onClick={() => setEditingProbabilities(false)}
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="probability-editor-content">
+              <div className="form-group">
+                <label>Select Option:</label>
+                <select 
+                  value={selectedOption.optionIndex}
+                  onChange={handleOptionChange}
+                  className="option-select"
+                >
+                  {nodes.find(n => n.id === selectedOption.nodeId)?.data.options.map((opt, index) => (
+                    <option key={index} value={index}>
+                      {opt.text} ({opt.targets?.length || 0} connections)
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="option-text-preview">
+                "{selectedOption.option.text}"
+              </div>
+              
+              {optionTargets.length > 0 ? (
+                <>
+                  <div className="targets-list">
+                    <div className="targets-header">
+                      <span>Target Event</span>
+                      <span>Probability</span>
+                    </div>
+                    
+                    {optionTargets.map((target, index) => {
+                      const targetEvent = allEvents.find(e => e.id === target.eventId);
+                      return (
+                        <div key={index} className="target-item">
+                          <span className="target-title">
+                            {targetEvent ? targetEvent.title : 'Unknown Event'}
+                          </span>
+                          <div className="probability-input-group">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              value={target.probability || 0}
+                              onChange={(e) => updateTargetProbability(index, e.target.value)}
+                              className="probability-input"
+                            />
+                            <span className="probability-percent">
+                              ({Math.round((target.probability || 0) * 100)}%)
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  
+                  <div className="probability-actions">
+                    <button 
+                      className="prob-action-btn"
+                      onClick={normalizeProbabilities}
+                      title="Normalize values to add up to 100%"
+                    >
+                      Normalize
+                    </button>
+                    <button 
+                      className="prob-action-btn"
+                      onClick={evenDistribution}
+                      title="Set equal probabilities for all connections"
+                    >
+                      Even Distribution
+                    </button>
+                  </div>
+                  
+                  <div className="probability-sum">
+                    Total: {Math.round(optionTargets.reduce((sum, t) => sum + (t.probability || 0), 0) * 100)}%
+                  </div>
+                </>
+              ) : (
+                <div className="no-targets-message">
+                  This option has no connections. Create connections by dragging from the option handle to other events.
+                </div>
+              )}
+            </div>
+            
+            <div className="probability-editor-footer">
+              <button 
+                className="cancel-btn"
+                onClick={() => setEditingProbabilities(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="save-btn"
+                onClick={saveProbabilityChanges}
+                disabled={optionTargets.length === 0}
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
         </div>
       )}
       
