@@ -35,185 +35,196 @@
 
 /* Custom node styling */
 .event-node {
-  border: 1px solid #ccc;
+  padding: 10px;
   border-radius: 8px;
-  background: white;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  background-color: white;
+  border: 1px solid #ccc;
   width: 220px;
-  transition: box-shadow 0.2s, transform 0.1s;
+  font-size: 14px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
 }
 
 .event-node:hover {
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  border-color: #aaa;
+}
+
+.event-node.starter-event {
+  border-color: #4caf50;
+  border-width: 2px;
 }
 
 .event-node-header {
-  background: #f8f8f8;
-  padding: 8px 12px;
-  border-top-left-radius: 7px;
-  border-top-right-radius: 7px;
+  padding-bottom: 8px;
   border-bottom: 1px solid #eee;
-  font-weight: bold;
+  margin-bottom: 8px;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
+.starter-badge {
+  background-color: #4caf50;
+  color: white;
+  font-size: 10px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  margin-left: 5px;
+}
+
 .event-node-content {
-  padding: 8px 12px;
-  font-size: 13px;
-  color: #333;
+  color: #666;
+  font-size: 12px;
+  margin-bottom: 8px;
   max-height: 80px;
   overflow-y: auto;
 }
 
+.event-node-content p {
+  margin: 0;
+}
+
 .event-node-options {
-  padding: 0 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border-top: 1px solid #eee;
+  padding-top: 8px;
 }
 
 .event-option {
-  background: #f0f0f0;
-  padding: 6px 10px;
+  background-color: #f5f5f5;
+  padding: 5px 8px;
   border-radius: 4px;
-  margin-bottom: 6px;
   font-size: 12px;
-  border: 1px solid #e0e0e0;
   cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  height: 30px;
+  margin-bottom: 5px;
 }
 
 .event-option:hover {
-  background: #e8e8e8;
+  background-color: #e3f2fd;
+  border-color: #2196f3;
 }
 
-/* Starter event styling */
-.starter-event {
-  border: 2px solid #4caf50;
+.event-option.has-connection {
+  background-color: #e3f2fd;
+  border: 1px solid #2196f3;
 }
 
-.starter-event .event-node-header {
-  background: #e8f5e9;
+.option-text {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-right: 15px;
 }
 
-.starter-badge {
-  font-size: 10px;
-  background-color: #4caf50;
-  color: white;
-  padding: 2px 6px;
-  border-radius: 10px;
-  margin-left: 8px;
+.option-connection-indicator {
+  color: #2196f3;
+  font-weight: bold;
+  margin-left: 5px;
+  position: absolute;
+  right: 8px;
 }
 
-/* React Flow custom styles */
-.react-flow__node-event {
-  padding: 0;
-  border-radius: 8px;
-  width: auto;
-  height: auto;
+/* Flow panel styling */
+.flow-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.react-flow__handle {
-  width: 8px;
-  height: 8px;
-  background-color: #555;
-}
-
-/* Floating Action Button */
 .flow-fab {
-  width: 56px;
-  height: 56px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   background-color: #2196f3;
   color: white;
-  font-size: 24px;
   border: none;
-  box-shadow: 0 3px 5px rgba(0, 0, 0, 0.2);
+  font-size: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
   transition: all 0.2s ease;
 }
 
 .flow-fab:hover {
   background-color: #1976d2;
-  transform: scale(1.05);
+  transform: scale(1.1);
 }
 
-.flow-fab:active {
-  transform: scale(0.95);
-}
-
-/* Controls toggle button */
 .flow-control-toggle {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
   background-color: white;
   border: 1px solid #ddd;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 16px;
+  font-size: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 10px;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .flow-control-toggle:hover {
   background-color: #f5f5f5;
 }
 
-/* Flow panels */
-.flow-panel {
-  padding: 0;
-  margin: 10px;
-}
-
-/* Node control panel */
-.flow-node-controls {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
-  padding: 12px;
+/* Node controls styling */
+.flow-node-controls, .flow-controls-panel {
   margin-top: 10px;
-  width: 180px;
+  background-color: white;
+  border-radius: 4px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  padding: 10px;
+  min-width: 200px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  border: 1px solid #eee;
 }
 
-.node-controls-label {
+.node-controls-label, .controls-label {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: bold;
   color: #555;
   margin-bottom: 5px;
-  padding-bottom: 5px;
-  border-bottom: 1px solid #eee;
 }
 
-/* Extended controls panel */
-.flow-controls-panel {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
-  padding: 15px;
-  margin-top: 10px;
-  width: 250px;
+.control-btn {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-  border: 1px solid #eee;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background-color: #f5f5f5;
+  border: 1px solid #ddd;
+  color: #333;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.controls-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 5px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #eee;
+.control-btn:hover {
+  background-color: #e0e0e0;
+}
+
+.delete-btn {
+  background-color: #ffebee;
+  border-color: #ffcdd2;
+  color: #d32f2f;
+}
+
+.delete-btn:hover {
+  background-color: #ffcdd2;
 }
 
 .controls-section {
@@ -224,7 +235,7 @@
 
 .controls-info {
   font-size: 12px;
-  color: #555;
+  color: #666;
 }
 
 .controls-info p {
@@ -240,38 +251,18 @@
   margin-bottom: 3px;
 }
 
-/* Control buttons */
-.control-btn {
-  padding: 6px 10px;
-  border-radius: 4px;
-  background-color: #f5f5f5;
-  border: 1px solid #ddd;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s ease;
+/* Event editor modal backdrop */
+.modal-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 999;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 5px;
-}
-
-.control-btn:hover:not(:disabled) {
-  background-color: #e5e5e5;
-}
-
-.control-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.delete-btn {
-  background-color: #ffebee;
-  color: #d32f2f;
-  border-color: #ffcdd2;
-}
-
-.delete-btn:hover {
-  background-color: #ffcdd2;
+  justify-content: center;
 }
 
 /* Media Queries for Responsive Design */
@@ -284,5 +275,39 @@
   
   .flow-controls-panel {
     width: 220px;
+  }
+}
+
+/* Add styles for connection handles */
+.event-handle {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: #777;
+  border: 2px solid white;
+  transition: all 0.2s ease;
+}
+
+.event-handle:hover {
+  background-color: #2196f3;
+  transform: scale(1.2);
+}
+
+.event-input-handle {
+  background-color: #673ab7;
+  left: -5px;
+}
+
+.option-handle {
+  background-color: #2196f3;
+  right: -5px;
+  z-index: 10;
+}
+
+/* Make handles more visible on mobile */
+@media (max-width: 768px) {
+  .event-handle {
+    width: 14px;
+    height: 14px;
   }
 } 

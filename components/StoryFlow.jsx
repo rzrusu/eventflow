@@ -7,7 +7,10 @@ import {
   addEdge,
   useNodesState,
   useEdgesState,
-  Panel
+  Panel,
+  MarkerType,
+  Handle,
+  Position
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import useStoryStore from '../src/store/storyStore';
@@ -15,8 +18,23 @@ import EventEditor from './EventEditor';
 
 // Custom node for an event
 const EventNode = ({ data }) => {
+  // Helper function to find connected event title
+  const getConnectedEventTitle = (eventId) => {
+    if (!eventId || !data.allEvents) return 'Unknown Event';
+    const connectedEvent = data.allEvents.find(event => event.id === eventId);
+    return connectedEvent ? connectedEvent.title : 'Unknown Event';
+  };
+  
   return (
     <div className={`event-node ${data.isStarter ? 'starter-event' : ''}`}>
+      {/* Input handle on the left side of the node */}
+      <Handle 
+        type="target" 
+        position={Position.Left} 
+        id="target" 
+        className="event-handle event-input-handle"
+      />
+      
       <div className="event-node-header">
         <strong>{data.title || 'New Event'}</strong>
         {data.isStarter && <span className="starter-badge">Starter</span>}
@@ -26,11 +44,27 @@ const EventNode = ({ data }) => {
       </div>
       <div className="event-node-options">
         {data.options && data.options.map((option, index) => (
-          <div key={index} className="event-option">
-            {option.text}
+          <div 
+            key={index} 
+            className={`event-option ${option.nextEventId ? 'has-connection' : ''}`}
+            title={option.nextEventId ? `Connected to: ${getConnectedEventTitle(option.nextEventId)}` : 'Drag to connect'}
+          >
+            <div className="option-text">{option.text}</div>
+            {option.nextEventId && <span className="option-connection-indicator">→</span>}
+            
+            {/* Output handle for each option */}
+            <Handle
+              type="source"
+              position={Position.Right}
+              id={`option-${index}`}
+              className="event-handle option-handle"
+              style={{ top: `${(index * 30) + 15}px` }}
+            />
           </div>
         ))}
       </div>
+      
+      {/* Removed the default output handle that was at the bottom */}
     </div>
   );
 };
@@ -55,6 +89,9 @@ const StoryFlow = ({ storylineId }) => {
   const [editingNodeId, setEditingNodeId] = useState(null);
   const [editingNodeData, setEditingNodeData] = useState(null);
   
+  // Store all events for the current storyline
+  const [allEvents, setAllEvents] = useState([]);
+  
   // Get state and actions from the store
   const {
     loadEvents,
@@ -74,6 +111,7 @@ const StoryFlow = ({ storylineId }) => {
       try {
         // Get events from the database
         const dbEvents = await loadEvents(storylineId);
+        setAllEvents(dbEvents);
         
         // Convert events to ReactFlow nodes
         const flowNodes = dbEvents.map(event => ({
@@ -82,21 +120,38 @@ const StoryFlow = ({ storylineId }) => {
           position: event.position || { x: 0, y: 0 },
           data: {
             ...event,
-            isStarter: !!event.isStarter
+            isStarter: !!event.isStarter,
+            allEvents: dbEvents
           }
         }));
         
-        // Create edges from events' links
+        // Create edges from options
         const flowEdges = [];
+        
         dbEvents.forEach(event => {
-          if (event.links && event.links.length > 0) {
-            event.links.forEach(targetId => {
-              flowEdges.push({
-                id: `edge-${event.id}-${targetId}`,
-                source: event.id,
-                target: targetId,
-                type: 'smoothstep'
-              });
+          // Add edges from options
+          if (event.options && event.options.length > 0) {
+            event.options.forEach((option, index) => {
+              if (option.nextEventId) {
+                flowEdges.push({
+                  id: `edge-option-${event.id}-${option.nextEventId}-${index}`,
+                  source: event.id,
+                  target: option.nextEventId,
+                  sourceHandle: `option-${index}`,
+                  targetHandle: 'target',
+                  type: 'smoothstep',
+                  animated: true,
+                  style: { stroke: '#2196f3' },
+                  markerEnd: {
+                    type: MarkerType.ArrowClosed,
+                    color: '#2196f3'
+                  },
+                  data: { 
+                    optionText: option.text,
+                    optionIndex: index 
+                  }
+                });
+              }
             });
           }
         });
@@ -114,20 +169,62 @@ const StoryFlow = ({ storylineId }) => {
 
   // Handle connections between nodes
   const onConnect = useCallback(async (params) => {
-    // Create an edge with a unique id
-    const edge = {
-      ...params,
-      id: `edge-${params.source}-${params.target}`,
-      animated: false,
-      type: 'smoothstep'
-    };
+    console.log('Connection params:', params);
     
-    // Add the edge to the database
-    await addDbEdge(params.source, params.target);
+    // All connections now come from option handles since we removed the bottom handle
+    const isOptionConnection = params.sourceHandle && params.sourceHandle.startsWith('option-');
     
-    // Add the edge to the flow
-    setEdges((eds) => addEdge(edge, eds));
-  }, [setEdges, addDbEdge]);
+    if (isOptionConnection) {
+      const optionIndex = parseInt(params.sourceHandle.split('-')[1], 10);
+      const sourceNode = nodes.find(n => n.id === params.source);
+      
+      if (sourceNode && sourceNode.data.options && sourceNode.data.options[optionIndex]) {
+        // Update the option's nextEventId
+        const updatedOptions = [...sourceNode.data.options];
+        updatedOptions[optionIndex] = {
+          ...updatedOptions[optionIndex],
+          nextEventId: params.target
+        };
+        
+        // Collect all nextEventIds for the links array
+        const links = updatedOptions
+          .map(opt => opt.nextEventId)
+          .filter(id => id !== null && id !== undefined);
+          
+        // Update the event in the database
+        await updateEvent(params.source, { 
+          options: updatedOptions,
+          links
+        });
+        
+        // Create a visual edge
+        const edge = {
+          id: `edge-option-${params.source}-${params.target}-${optionIndex}`,
+          source: params.source,
+          target: params.target,
+          sourceHandle: params.sourceHandle,
+          targetHandle: params.targetHandle || 'target',
+          type: 'smoothstep',
+          animated: true,
+          style: { stroke: '#2196f3' },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: '#2196f3'
+          },
+          data: { 
+            optionText: updatedOptions[optionIndex].text,
+            optionIndex 
+          }
+        };
+        
+        setEdges(eds => addEdge(edge, eds));
+      }
+    } else {
+      // If we get here, it's a non-option connection (which shouldn't happen with our new design)
+      // But we'll keep this as a fallback just in case
+      console.warn('Unexpected connection type', params);
+    }
+  }, [nodes, setEdges, updateEvent]);
   
   // Handle node drag
   const onNodeDragStop = useCallback(async (event, node) => {
@@ -153,7 +250,30 @@ const StoryFlow = ({ storylineId }) => {
   
   // Handle edge removal
   const onEdgeDelete = async (edge) => {
-    await removeDbEdge(edge.source, edge.target);
+    // All edges are now option edges
+    if (edge.id.startsWith('edge-option')) {
+      // Find the source node and option index
+      const [_, __, sourceId, targetId, optionIndex] = edge.id.split('-');
+      const sourceNode = nodes.find(n => n.id === sourceId);
+      if (sourceNode && sourceNode.data.options && sourceNode.data.options[optionIndex]) {
+        // Remove the option connection
+        const updatedOptions = [...sourceNode.data.options];
+        updatedOptions[optionIndex] = {
+          ...updatedOptions[optionIndex],
+          nextEventId: null
+        };
+        
+        // Update the node
+        await updateEvent(sourceId, { 
+          options: updatedOptions,
+          links: updatedOptions
+            .map(opt => opt.nextEventId)
+            .filter(id => id !== null && id !== undefined)
+        });
+      }
+    } else {
+      console.warn('Unknown edge type:', edge.id);
+    }
   };
 
   // Create a new event node
@@ -181,6 +301,7 @@ const StoryFlow = ({ storylineId }) => {
     if (newEventId) {
       // Reload events to get the updated list with the new event
       const dbEvents = await loadEvents(storylineId);
+      setAllEvents(dbEvents);
       
       // Find our new event
       const newEvent = dbEvents.find(e => e.id === newEventId);
@@ -193,7 +314,8 @@ const StoryFlow = ({ storylineId }) => {
           position,
           data: {
             ...newEvent,
-            isStarter: !!newEvent.isStarter
+            isStarter: !!newEvent.isStarter,
+            allEvents: dbEvents
           }
         };
         
@@ -296,6 +418,7 @@ const StoryFlow = ({ storylineId }) => {
     // Reload events to get the updated data
     if (storylineId) {
       const dbEvents = await loadEvents(storylineId);
+      setAllEvents(dbEvents);
       
       // Update the nodes with fresh data
       setNodes(prevNodes => 
@@ -306,13 +429,47 @@ const StoryFlow = ({ storylineId }) => {
               ...node,
               data: {
                 ...updatedEvent,
-                isStarter: !!updatedEvent.isStarter
+                isStarter: !!updatedEvent.isStarter,
+                allEvents: dbEvents  // Update allEvents for each node
               }
             };
           }
           return node;
         })
       );
+      
+      // Rebuild edges - only from options now, since we removed the bottom source handle
+      const newEdges = [];
+      
+      dbEvents.forEach(event => {
+        // Add edges from options
+        if (event.options && event.options.length > 0) {
+          event.options.forEach((option, index) => {
+            if (option.nextEventId) {
+              newEdges.push({
+                id: `edge-option-${event.id}-${option.nextEventId}-${index}`,
+                source: event.id,
+                target: option.nextEventId,
+                sourceHandle: `option-${index}`,
+                targetHandle: 'target',
+                type: 'smoothstep',
+                animated: true,
+                style: { stroke: '#2196f3' },
+                markerEnd: {
+                  type: MarkerType.ArrowClosed,
+                  color: '#2196f3'
+                },
+                data: { 
+                  optionText: option.text,
+                  optionIndex: index 
+                }
+              });
+            }
+          });
+        }
+      });
+      
+      setEdges(newEdges);
     }
   };
 
@@ -349,6 +506,8 @@ const StoryFlow = ({ storylineId }) => {
         nodesDraggable={true}
         elementsSelectable={true}
         selectNodesOnDrag={false}
+        connectionLineStyle={{ stroke: '#2196f3' }}
+        connectionLineType="smoothstep"
       >
         <Controls showInteractive={false} position="bottom-right" />
         <MiniMap nodeStrokeWidth={3} zoomable pannable position="bottom-left" />
@@ -430,8 +589,10 @@ const StoryFlow = ({ storylineId }) => {
                   <ul>
                     <li>Click on a node to select it</li>
                     <li>Double-click a node to edit its content</li>
-                    <li>Drag between nodes to connect them</li>
-                    <li>The first node is automatically set as starter</li>
+                    <li>Drag from an option's handle to another event to connect them</li>
+                    <li>Blue lines represent option connections</li>
+                    <li>Events accept input connections on the left side</li>
+                    <li>Options output connections from the right side</li>
                   </ul>
                 </div>
               </div>
@@ -446,6 +607,7 @@ const StoryFlow = ({ storylineId }) => {
           <EventEditor 
             eventId={editingNodeId}
             eventData={editingNodeData}
+            availableEvents={allEvents}
             onClose={handleEventEditorClose}
           />
         </div>
@@ -466,6 +628,24 @@ const StoryFlow = ({ storylineId }) => {
           bottom: 0;
           background-color: rgba(0, 0, 0, 0.5);
           z-index: 999;
+        }
+        
+        .event-option {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          position: relative;
+        }
+        
+        .option-text {
+          flex: 1;
+          margin-right: 10px;
+        }
+        
+        .option-connection-indicator {
+          color: #2196f3;
+          font-weight: bold;
+          margin-left: 5px;
         }
       `}</style>
     </div>

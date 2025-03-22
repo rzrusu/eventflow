@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import useStoryStore from '../src/store/storyStore';
 
-const EventEditor = ({ eventId, eventData, onClose }) => {
+const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [options, setOptions] = useState([]);
@@ -16,7 +16,10 @@ const EventEditor = ({ eventId, eventData, onClose }) => {
     if (eventData) {
       setTitle(eventData.title || '');
       setContent(eventData.content || '');
-      setOptions(eventData.options || []);
+      setOptions(eventData.options?.map(option => ({
+        ...option,
+        nextEventId: option.nextEventId || null
+      })) || []);
     }
   }, [eventData]);
   
@@ -27,11 +30,17 @@ const EventEditor = ({ eventId, eventData, onClose }) => {
     try {
       setIsLoading(true);
       
+      // Calculate links array based on the options' nextEventId values
+      const links = options
+        .map(option => option.nextEventId)
+        .filter(id => id !== null && id !== undefined);
+      
       // Update the event in the database
       await updateEvent(eventId, {
         title,
         content,
-        options
+        options,
+        links
       });
       
       // Close the editor
@@ -70,6 +79,9 @@ const EventEditor = ({ eventId, eventData, onClose }) => {
   if (!eventData) {
     return <div className="event-editor error">Event data not available</div>;
   }
+  
+  // Filter out the current event from available options
+  const connectableEvents = availableEvents?.filter(event => event.id !== eventId) || [];
   
   return (
     <div className="event-editor">
@@ -115,19 +127,35 @@ const EventEditor = ({ eventId, eventData, onClose }) => {
             <div className="options-list">
               {options.map((option, index) => (
                 <div key={index} className="option-item">
-                  <input
-                    type="text"
-                    value={option.text}
-                    onChange={(e) => updateOption(index, 'text', e.target.value)}
-                    placeholder="Option text"
-                  />
-                  <button 
-                    className="remove-option-btn"
-                    onClick={() => removeOption(index)}
-                    title="Remove option"
-                  >
-                    ×
-                  </button>
+                  <div className="option-row">
+                    <input
+                      type="text"
+                      value={option.text}
+                      onChange={(e) => updateOption(index, 'text', e.target.value)}
+                      placeholder="Option text"
+                    />
+                    <button 
+                      className="remove-option-btn"
+                      onClick={() => removeOption(index)}
+                      title="Remove option"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className="option-connection">
+                    <label>Links to:</label>
+                    <select
+                      value={option.nextEventId || ''}
+                      onChange={(e) => updateOption(index, 'nextEventId', e.target.value || null)}
+                    >
+                      <option value="">-- Not connected --</option>
+                      {connectableEvents.map(event => (
+                        <option key={event.id} value={event.id}>
+                          {event.title || 'Untitled Event'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               ))}
             </div>
@@ -221,7 +249,7 @@ const EventEditor = ({ eventId, eventData, onClose }) => {
           color: #555;
         }
         
-        input, textarea {
+        input, textarea, select {
           width: 100%;
           padding: 10px;
           border: 1px solid #ddd;
@@ -259,14 +287,38 @@ const EventEditor = ({ eventId, eventData, onClose }) => {
         }
         
         .option-item {
+          margin-bottom: 16px;
+          padding: 12px;
+          border: 1px solid #eee;
+          border-radius: 4px;
+          background: #fafafa;
+        }
+        
+        .option-row {
           display: flex;
           margin-bottom: 8px;
           align-items: center;
         }
         
-        .option-item input {
+        .option-row input {
           flex-grow: 1;
           margin-right: 8px;
+        }
+        
+        .option-connection {
+          display: flex;
+          align-items: center;
+          margin-top: 8px;
+        }
+        
+        .option-connection label {
+          display: inline;
+          margin-right: 8px;
+          min-width: 60px;
+        }
+        
+        .option-connection select {
+          flex-grow: 1;
         }
         
         .remove-option-btn {
@@ -324,16 +376,6 @@ const EventEditor = ({ eventId, eventData, onClose }) => {
         .save-btn:disabled, .cancel-btn:disabled {
           opacity: 0.6;
           cursor: not-allowed;
-        }
-        
-        .event-editor.loading, .event-editor.error {
-          padding: 20px;
-          text-align: center;
-          color: #555;
-        }
-        
-        .event-editor.error {
-          color: #d32f2f;
         }
       `}</style>
     </div>
