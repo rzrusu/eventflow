@@ -42,18 +42,32 @@ const EventNode = ({ data }) => {
   const hasSkillCheckOptions = data.options && data.options.some(option => 
     option.skillCheck && option.skillCheck.skill
   );
+  
+  // Check if this event has trigger requirements
+  const hasTriggerRequirements = data.triggerRequirements && data.triggerRequirements.length > 0;
 
   return (
-    <div className={`event-node ${data.isStarter ? 'starter-event' : ''} ${hasSkillCheckOptions ? 'skill-check-event' : ''}`}>
+    <div className={`event-node ${data.isStarter ? 'starter-event' : ''} ${hasSkillCheckOptions ? 'skill-check-event' : ''} ${hasTriggerRequirements ? 'trigger-req-event' : ''}`}>
       <div className="event-title">
         {data.title}
         {data.isStarter && <span className="starter-badge">Starter</span>}
         {hasSkillCheckOptions && <span className="skill-check-badge">Skill Check</span>}
+        {hasTriggerRequirements && <span className="trigger-req-badge">Triggers</span>}
       </div>
       <div className="event-content">
         {data.content && data.content.substring(0, 100)}
         {data.content && data.content.length > 100 ? '...' : ''}
       </div>
+      {hasTriggerRequirements && (
+        <div className="event-trigger-requirements">
+          {data.triggerRequirements.map((trigger, index) => (
+            <div key={index} className="trigger-requirement">
+              {trigger.key}: {trigger.value}
+              {index < data.triggerRequirements.length - 1 && ", "}
+            </div>
+          ))}
+        </div>
+      )}
       <div className="event-options">
         {data.options && data.options.map((option, index) => {
           const connectionSummary = getOptionConnectionSummary(option);
@@ -1031,7 +1045,8 @@ const StoryFlow = ({ storylineId }) => {
           content: event.content || '',
           isStarter: event.isStarter || false,
           position: node?.position || { x: 0, y: 0 },
-          options: processedOptions
+          options: processedOptions,
+          triggerRequirements: event.triggerRequirements || []
         };
       });
       
@@ -1087,128 +1102,106 @@ const StoryFlow = ({ storylineId }) => {
         );
         
         if (!confirm) {
-          // Reset the file input
-          e.target.value = '';
           return;
         }
         
-        // Delete existing events
+        // Delete all existing events
         for (const event of allEvents) {
           await deleteEvent(event.id);
         }
       }
       
-      // Process and import events
+      // Process and create events
       const importedEvents = [];
       
+      // First, create all events without connections
       for (const eventData of data) {
-        // Extract basic event data
-        const { id, title, content, position, isStarter } = eventData;
+        const {
+          id,
+          title,
+          content,
+          position,
+          isStarter,
+          options,
+          optionTargets,
+          optionProbabilities,
+          optionEffects,
+          triggerRequirements
+        } = eventData;
         
         // Format options based on the data format
         let formattedOptions = [];
         
-        // Case 1: Options with both optionTargets and optionEffects/skillChecks (new format)
-        if (Array.isArray(eventData.options) && typeof eventData.options[0] === 'object') {
-          formattedOptions = eventData.options.map(opt => {
-            // Base option object with text
-            const formattedOption = {
-              text: opt.text || 'Option',
-              targets: [],
-              effects: []
-            };
-            
-            // Process skill check option
-            if (opt.skillCheck && (opt.successTargets || opt.failureTargets)) {
-              // Add skill check to the option
-              formattedOption.skillCheck = {
-                skill: opt.skillCheck.skill || '',
-                minValue: opt.skillCheck.minValue || 0
-              };
+        // Case 1: Modern format with options object that includes targets
+        if (Array.isArray(options) && options[0] && typeof options[0] === 'object' && 'text' in options[0]) {
+          formattedOptions = options.map((opt, index) => {
+            // Handle skill check options
+            if (opt.skillCheck) {
+              const successTargets = opt.successTargets || [];
+              const failureTargets = opt.failureTargets || [];
               
-              // Add success targets
-              if (Array.isArray(opt.successTargets)) {
-                opt.successTargets.forEach(targetId => {
-                  formattedOption.targets.push({
-                    eventId: targetId,
+              return {
+                text: opt.text,
+                skillCheck: opt.skillCheck,
+                targets: [
+                  ...successTargets.map(eventId => ({
+                    eventId,
                     isSkillCheckOutcome: true,
                     isSuccess: true,
-                    probability: 1 // Not used but keeping for consistency
-                  });
-                });
-              }
-              
-              // Add failure targets
-              if (Array.isArray(opt.failureTargets)) {
-                opt.failureTargets.forEach(targetId => {
-                  formattedOption.targets.push({
-                    eventId: targetId,
+                    probability: 1
+                  })),
+                  ...failureTargets.map(eventId => ({
+                    eventId,
                     isSkillCheckOutcome: true,
                     isSuccess: false,
-                    probability: 1 // Not used but keeping for consistency
-                  });
-                });
-              }
-            } 
-            // Process probability-based option
-            else if (Array.isArray(opt.optionTargets)) {
-              // Add targets with probabilities
-              const optionTargets = opt.optionTargets || [];
-              const optionProbabilities = opt.optionProbabilities || Array(optionTargets.length).fill(1/Math.max(1, optionTargets.length));
+                    probability: 1
+                  }))
+                ],
+                effects: opt.effects || []
+              };
+            } else {
+              // Handle regular probability-based options
+              const optTargets = opt.optionTargets || [];
+              const optProbs = opt.optionProbabilities || [];
               
-              optionTargets.forEach((targetId, i) => {
-                const probability = i < optionProbabilities.length ? optionProbabilities[i] : 1/optionTargets.length;
-                formattedOption.targets.push({
-                  eventId: targetId,
-                  probability
-                });
-              });
+              return {
+                text: opt.text,
+                targets: optTargets.map((eventId, i) => ({
+                  eventId,
+                  probability: optProbs[i] || 1
+                })),
+                effects: opt.effects || []
+              };
             }
-            
-            // Add effects if present
-            if (Array.isArray(opt.effects)) {
-              formattedOption.effects = opt.effects.map(effect => ({
-                skill: effect.skill || '',
-                value: effect.value || 0
-              }));
-            }
-            
-            return formattedOption;
           });
         }
-        // Case 2: Old format with arrays
-        else if (Array.isArray(eventData.options) && Array.isArray(eventData.optionTargets)) {
-          // Convert string options and targets arrays to objects
-          formattedOptions = eventData.options.map((text, index) => {
+        // Case 2: Legacy format with separate optionTargets array
+        else if (Array.isArray(options) && Array.isArray(optionTargets)) {
+          formattedOptions = options.map((text, index) => {
             const option = {
               text,
-              targets: [],
-              effects: []
+              targets: []
             };
             
             // Add targets if available
-            if (eventData.optionTargets && eventData.optionTargets[index]) {
-              const targets = eventData.optionTargets[index];
-              const probabilities = eventData.optionProbabilities && eventData.optionProbabilities[index];
+            if (optionTargets && optionTargets[index]) {
+              const targets = Array.isArray(optionTargets[index]) 
+                ? optionTargets[index] 
+                : [optionTargets[index]];
+                
+              const probabilities = optionProbabilities && optionProbabilities[index]
+                ? (Array.isArray(optionProbabilities[index]) 
+                  ? optionProbabilities[index] 
+                  : [optionProbabilities[index]])
+                : targets.map(() => 1);
+                
+              option.targets = targets.map((eventId, i) => ({
+                eventId,
+                probability: probabilities[i] || 1
+              }));
               
-              if (Array.isArray(targets)) {
-                targets.forEach((target, i) => {
-                  const targetId = typeof target === 'object' ? target.eventId : target;
-                  const probability = 
-                    (probabilities && i < probabilities.length) ? probabilities[i] : 
-                    (typeof target === 'object' ? target.probability : 1/targets.length);
-                  
-                  option.targets.push({
-                    eventId: targetId,
-                    probability
-                  });
-                });
-              }
-            }
-            
-            // Add effects if available
-            if (eventData.optionEffects && eventData.optionEffects[index]) {
-              const effects = eventData.optionEffects[index];
+              // Add effects if available
+              const effects = optionEffects && optionEffects[index];
               
               if (Array.isArray(effects)) {
                 option.effects = effects.map(effect => ({
@@ -1222,8 +1215,8 @@ const StoryFlow = ({ storylineId }) => {
           });
         }
         // Case 3: Simple string options
-        else if (Array.isArray(eventData.options) && typeof eventData.options[0] === 'string') {
-          formattedOptions = eventData.options.map(text => ({
+        else if (Array.isArray(options) && typeof options[0] === 'string') {
+          formattedOptions = options.map(text => ({
             text,
             targets: [],
             effects: []
@@ -1250,7 +1243,22 @@ const StoryFlow = ({ storylineId }) => {
           options: formattedOptions,
           links,
           position: position || { x: 0, y: 0 },
-          isStarter: !!isStarter
+          isStarter: !!isStarter,
+          triggerRequirements: triggerRequirements ? triggerRequirements.map(req => {
+            // Ensure values have the correct types
+            const value = req.value;
+            if (typeof value === 'string') {
+              // Convert string "true"/"false" to boolean
+              if (value.toLowerCase() === 'true') return { ...req, value: true };
+              if (value.toLowerCase() === 'false') return { ...req, value: false };
+              
+              // Convert numeric strings to numbers
+              if (!isNaN(value) && value.trim() !== '') {
+                return { ...req, value: Number(value) };
+              }
+            }
+            return req;
+          }) : []
         });
         
         importedEvents.push(newEvent);
@@ -1264,10 +1272,8 @@ const StoryFlow = ({ storylineId }) => {
       
       alert(`Successfully imported ${importedEvents.length} events!`);
     } catch (error) {
-      console.error('Error importing storyline:', error);
-      alert('Error importing storyline. Check console for details.');
-      // Reset the file input
-      e.target.value = '';
+      console.error('Error importing from JSON:', error);
+      alert('Failed to import storyline from JSON');
     }
   };
   
@@ -1714,43 +1720,21 @@ const StoryFlow = ({ storylineId }) => {
                     </li>
                     <li><code>optionEffects</code>: Array of skill effects for each option
                       <ul>
-                        <li>Each effect has a <code>skill</code> name and <code>value</code> modifier</li>
+                        <li>Each effect has a <code>skill</code> name and <code>value</code></li>
                         <li>Values can be positive or negative to increase or decrease skills</li>
-                        <li>Multiple effects can be applied by a single option</li>
                       </ul>
                     </li>
-                    <li><code>skillCheck</code>: Define skill requirements for options
+                    <li><code>triggerRequirements</code>: Array of requirements to access this event
                       <ul>
-                        <li>Each skill check has a <code>skill</code> name and <code>minValue</code> requirement</li>
-                        <li>Connect success path from the green (top) handle</li>
-                        <li>Connect failure path from the red (bottom) handle</li>
+                        <li>Each requirement has a <code>key</code> and <code>value</code></li>
+                        <li>Example: <code>{"{"}"key": "playerLevel", "value": 5{"}"}</code></li>
+                        <li>Boolean values should use native <code>true</code>/<code>false</code>, not strings</li>
+                        <li>These determine if the event is accessible based on player state</li>
                       </ul>
                     </li>
                     <li><code>position</code>: X,Y coordinates for layout</li>
                     <li><code>isStarter</code>: Set to true for the starting event</li>
                   </ul>
-                  <div>To create connections with probabilities:</div>
-                  <ol>
-                    <li>Select an event and add options</li>
-                    <li>Drag from the option handle to other events</li>
-                    <li>Use the "Edit Probabilities" button to set chances</li>
-                    <li>Probability values will normalize to add up to 100%</li>
-                  </ol>
-                  <div>To add skill effects to options:</div>
-                  <ol>
-                    <li>Select an event and add options</li>
-                    <li>Click the "Effects" button next to an option</li>
-                    <li>Add skills and their numeric modifiers</li>
-                    <li>These effects will apply when the player selects this option</li>
-                  </ol>
-                  <div>To create skill check options:</div>
-                  <ol>
-                    <li>Select an event and add options</li>
-                    <li>Click the "Skill Check" button next to an option</li>
-                    <li>Define the skill name and minimum value required</li>
-                    <li>Connect success path (green handle) to the success event</li>
-                    <li>Connect failure path (red handle) to the failure event</li>
-                  </ol>
                 </div>
               </div>
             </div>
@@ -2010,6 +1994,85 @@ const StoryFlow = ({ storylineId }) => {
           color: #757575;
           font-style: italic;
           margin-top: 6px;
+        }
+        
+        .event-node.skill-check-event {
+          border-color: #ff9800;
+        }
+        
+        .event-node.trigger-req-event {
+          border-color: #8bc34a;
+        }
+        
+        .event-node.skill-check-event.trigger-req-event {
+          border: 2px solid;
+          border-image: linear-gradient(to right, #ff9800, #8bc34a) 1;
+        }
+        
+        .event-title {
+          font-weight: bold;
+          padding: 8px;
+          border-bottom: 1px solid #ddd;
+          position: relative;
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 6px;
+          justify-content: space-between;
+        }
+        
+        .starter-badge {
+          background-color: #2196f3;
+          color: white;
+          font-size: 10px;
+          padding: 2px 4px;
+          border-radius: 3px;
+          white-space: nowrap;
+        }
+        
+        .skill-check-badge {
+          background-color: #ff9800;
+          color: white;
+          font-size: 10px;
+          padding: 2px 4px;
+          border-radius: 3px;
+          white-space: nowrap;
+        }
+        
+        .trigger-req-badge {
+          background-color: #8bc34a;
+          color: white;
+          font-size: 10px;
+          padding: 2px 4px;
+          border-radius: 3px;
+          white-space: nowrap;
+        }
+        
+        .event-content {
+          padding: 8px;
+          border-bottom: 1px solid #ddd;
+        }
+        
+        .event-trigger-requirements {
+          padding: 5px 8px;
+          font-size: 11px;
+          background-color: #f1f8e9;
+          border-bottom: 1px dashed #ddd;
+          color: #33691e;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 4px;
+        }
+        
+        .trigger-requirement {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        
+        .event-options {
+          padding: 8px;
+          border-bottom: 1px solid #ddd;
         }
       `}</style>
     </div>

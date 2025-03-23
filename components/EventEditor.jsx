@@ -9,7 +9,11 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
   const [error, setError] = useState(null);
   const [editingEffects, setEditingEffects] = useState(false);
   const [editingSkillCheck, setEditingSkillCheck] = useState(false);
+  const [editingTriggers, setEditingTriggers] = useState(false);
   const [currentOptionIndex, setCurrentOptionIndex] = useState(null);
+  const [triggerRequirements, setTriggerRequirements] = useState([]);
+  const [newTriggerKey, setNewTriggerKey] = useState('');
+  const [newTriggerValue, setNewTriggerValue] = useState('');
   
   // Get the updateEvent function from the store
   const { updateEvent } = useStoryStore();
@@ -27,6 +31,9 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
         effects: option.effects || [], // Initialize effects array if not present
         skillCheck: option.skillCheck || null // Initialize skillCheck if not present
       })) || []);
+      
+      // Initialize trigger requirements
+      setTriggerRequirements(eventData.triggerRequirements || []);
     }
   }, [eventData]);
   
@@ -54,7 +61,8 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
         title,
         content,
         options,
-        links
+        links,
+        triggerRequirements
       });
       
       // Close the editor
@@ -254,6 +262,57 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
     setOptions(updatedOptions);
   };
   
+  // Close the skill check editor
+  const closeSkillCheckEditor = () => {
+    setEditingSkillCheck(false);
+  };
+
+  // Open trigger requirements editor
+  const openTriggerEditor = () => {
+    setEditingTriggers(true);
+  };
+
+  // Close trigger requirements editor
+  const closeTriggerEditor = () => {
+    setEditingTriggers(false);
+  };
+
+  // Add a new trigger requirement
+  const addTriggerRequirement = () => {
+    if (!newTriggerKey.trim() || !newTriggerValue.trim()) return;
+    
+    // Convert value to appropriate type
+    let value = newTriggerValue.trim();
+    
+    // Convert to number if it's numeric
+    if (!isNaN(value) && value !== '') {
+      value = Number(value);
+    } 
+    // Convert to boolean if it's "true" or "false"
+    else if (value.toLowerCase() === 'true') {
+      value = true;
+    } 
+    else if (value.toLowerCase() === 'false') {
+      value = false;
+    }
+    
+    setTriggerRequirements([
+      ...triggerRequirements,
+      { key: newTriggerKey.trim(), value }
+    ]);
+    
+    // Reset inputs
+    setNewTriggerKey('');
+    setNewTriggerValue('');
+  };
+
+  // Remove a trigger requirement
+  const removeTriggerRequirement = (index) => {
+    setTriggerRequirements(
+      triggerRequirements.filter((_, i) => i !== index)
+    );
+  };
+  
   if (!eventData) {
     return <div className="event-editor error">Event data not available</div>;
   }
@@ -385,6 +444,32 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
             </div>
           )}
         </div>
+        
+        {/* Trigger Requirements Section */}
+        <div className="form-group">
+          <div className="triggers-header">
+            <label>Trigger Requirements</label>
+            <button 
+              className="edit-triggers-btn"
+              onClick={openTriggerEditor}
+              title="Edit Trigger Requirements"
+            >
+              Edit Requirements
+            </button>
+          </div>
+          
+          {triggerRequirements.length > 0 ? (
+            <div className="triggers-summary">
+              {triggerRequirements.map((trigger, index) => (
+                <div key={index} className="trigger-tag">
+                  {trigger.key}: {trigger.value}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="no-triggers">No trigger requirements set. This event will always be accessible.</p>
+          )}
+        </div>
       </div>
       
       <div className="event-editor-footer">
@@ -505,7 +590,7 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
               <h3>Edit Skill Check for "{options[currentOptionIndex].text}"</h3>
               <button 
                 className="close-skill-check-btn"
-                onClick={() => setEditingSkillCheck(false)}
+                onClick={closeSkillCheckEditor}
               >
                 ×
               </button>
@@ -578,7 +663,90 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
             <div className="skill-check-editor-footer">
               <button 
                 className="close-skill-check-btn"
-                onClick={() => setEditingSkillCheck(false)}
+                onClick={closeSkillCheckEditor}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Trigger Requirements Editor Modal */}
+      {editingTriggers && (
+        <div className="effects-editor-backdrop">
+          <div className="triggers-editor">
+            <div className="triggers-editor-header">
+              <h3>Edit Trigger Requirements</h3>
+              <button 
+                className="close-triggers-btn"
+                onClick={closeTriggerEditor}
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="triggers-editor-content">
+              <p className="triggers-help">
+                Trigger requirements define conditions that must be met for this event to be accessible.
+                Examples: <code>playerLevel: 5</code>, <code>hasItem: true</code>, <code>questCompleted: "mainQuest"</code>
+              </p>
+              
+              <div className="current-triggers">
+                <h4>Current Requirements</h4>
+                {triggerRequirements.length > 0 ? (
+                  <ul className="triggers-list">
+                    {triggerRequirements.map((trigger, index) => (
+                      <li key={index} className="trigger-item">
+                        <span className="trigger-key">{trigger.key}:</span>
+                        <span className="trigger-value">{trigger.value}</span>
+                        <button 
+                          className="remove-trigger-btn"
+                          onClick={() => removeTriggerRequirement(index)}
+                          title="Remove Requirement"
+                        >
+                          ×
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="no-triggers-set">No requirements set.</p>
+                )}
+              </div>
+              
+              <div className="add-trigger-form">
+                <h4>Add New Requirement</h4>
+                <div className="trigger-inputs">
+                  <input
+                    type="text"
+                    className="trigger-key-input"
+                    value={newTriggerKey}
+                    onChange={(e) => setNewTriggerKey(e.target.value)}
+                    placeholder="Key (e.g. playerLevel)"
+                  />
+                  <input
+                    type="text"
+                    className="trigger-value-input"
+                    value={newTriggerValue}
+                    onChange={(e) => setNewTriggerValue(e.target.value)}
+                    placeholder="Value (e.g. 5)"
+                  />
+                  <button 
+                    className="add-trigger-btn"
+                    onClick={addTriggerRequirement}
+                    disabled={!newTriggerKey.trim() || !newTriggerValue.trim()}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <div className="triggers-editor-footer">
+              <button 
+                className="close-triggers-btn-footer"
+                onClick={closeTriggerEditor}
               >
                 Done
               </button>
@@ -1187,6 +1355,218 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
           border: 1px solid #ffe0b2;
           display: flex;
           align-items: center;
+        }
+        
+        /* Trigger Requirements Styles */
+        .triggers-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 10px;
+        }
+        
+        .edit-triggers-btn {
+          padding: 4px 8px;
+          background: #f5f5f5;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 12px;
+        }
+        
+        .edit-triggers-btn:hover {
+          background: #e0e0e0;
+        }
+        
+        .triggers-summary {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 5px;
+          margin-bottom: 10px;
+        }
+        
+        .trigger-tag {
+          background: #e8f5e9;
+          color: #2e7d32;
+          padding: 3px 6px;
+          border-radius: 4px;
+          font-size: 12px;
+          border: 1px solid #c8e6c9;
+        }
+        
+        .no-triggers {
+          font-style: italic;
+          color: #777;
+          font-size: 13px;
+        }
+        
+        /* Trigger Requirements Editor Styles */
+        .triggers-editor {
+          background: white;
+          border-radius: 8px;
+          width: 500px;
+          max-width: 90vw;
+          box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
+          max-height: 90vh;
+          display: flex;
+          flex-direction: column;
+        }
+        
+        .triggers-editor-header {
+          padding: 16px 20px;
+          border-bottom: 1px solid #eee;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        
+        .triggers-editor-header h3 {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 500;
+        }
+        
+        .close-triggers-btn {
+          background: none;
+          border: none;
+          font-size: 20px;
+          cursor: pointer;
+          color: #777;
+        }
+        
+        .triggers-editor-content {
+          padding: 20px;
+          overflow-y: auto;
+          max-height: 60vh;
+        }
+        
+        .triggers-help {
+          margin-top: 0;
+          margin-bottom: 15px;
+          color: #555;
+          font-size: 14px;
+        }
+        
+        .triggers-help code {
+          background: #f5f5f5;
+          padding: 2px 4px;
+          border-radius: 3px;
+          font-size: 12px;
+          color: #e91e63;
+        }
+        
+        .current-triggers h4, .add-trigger-form h4 {
+          margin-top: 0;
+          margin-bottom: 10px;
+          font-size: 14px;
+          font-weight: 500;
+        }
+        
+        .triggers-list {
+          list-style: none;
+          padding: 0;
+          margin: 0;
+        }
+        
+        .trigger-item {
+          display: flex;
+          align-items: center;
+          padding: 8px 10px;
+          background: #f9f9f9;
+          border-radius: 4px;
+          margin-bottom: 5px;
+        }
+        
+        .trigger-key {
+          font-weight: 500;
+          margin-right: 5px;
+          color: #333;
+        }
+        
+        .trigger-value {
+          color: #4caf50;
+          flex-grow: 1;
+        }
+        
+        .remove-trigger-btn {
+          background: none;
+          border: none;
+          color: #f44336;
+          font-size: 16px;
+          cursor: pointer;
+          width: 24px;
+          height: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
+        }
+        
+        .remove-trigger-btn:hover {
+          background: rgba(244, 67, 54, 0.1);
+        }
+        
+        .no-triggers-set {
+          font-style: italic;
+          color: #777;
+          font-size: 13px;
+        }
+        
+        .add-trigger-form {
+          margin-top: 20px;
+          padding-top: 15px;
+          border-top: 1px solid #eee;
+        }
+        
+        .trigger-inputs {
+          display: flex;
+          gap: 8px;
+        }
+        
+        .trigger-key-input, .trigger-value-input {
+          flex: 1;
+          padding: 8px 10px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          font-size: 14px;
+        }
+        
+        .add-trigger-btn {
+          background: #4caf50;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          padding: 0 15px;
+          cursor: pointer;
+        }
+        
+        .add-trigger-btn:hover {
+          background: #43a047;
+        }
+        
+        .add-trigger-btn:disabled {
+          background: #a5d6a7;
+          cursor: not-allowed;
+        }
+        
+        .triggers-editor-footer {
+          padding: 16px 20px;
+          border-top: 1px solid #eee;
+          display: flex;
+          justify-content: flex-end;
+        }
+        
+        .close-triggers-btn-footer {
+          padding: 8px 16px;
+          background: #2196f3;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        
+        .close-triggers-btn-footer:hover {
+          background: #1e88e5;
         }
       `}</style>
     </div>
