@@ -145,10 +145,12 @@ const useStoryStore = create((set, get) => ({
       
       await storylineDb.add(newStoryline);
       
-      set({ 
+      // Update the state with the new storyline
+      set(state => ({ 
+        storylines: [...state.storylines, newStoryline],
         activeStorylineId: storylineId,
         isLoading: false 
-      });
+      }));
       
       return storylineId;
     } catch (error) {

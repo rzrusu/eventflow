@@ -62,6 +62,9 @@ const StoryEditor = () => {
     });
     
     if (newStoryId) {
+      // Explicitly reload stories to update the sidebar list
+      await loadStories();
+      // Set active story after reloading
       setActiveStory(newStoryId);
     }
   };
@@ -70,13 +73,16 @@ const StoryEditor = () => {
   const handleCreateStoryline = async () => {
     if (!activeStoryId) return;
     
-    const storylines = await loadStorylines(activeStoryId);
+    // Create new storyline
     const newStorylineId = await createStoryline(activeStoryId, {
       title: `New Storyline ${storylines.length + 1}`,
       description: 'Add a description'
     });
     
     if (newStorylineId) {
+      // Explicitly reload storylines to update the sidebar list
+      await loadStorylines(activeStoryId);
+      // Set active storyline after reloading
       setActiveStoryline(newStorylineId);
     }
   };
