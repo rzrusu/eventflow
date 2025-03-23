@@ -14,6 +14,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import useStoryStore from '../src/store/storyStore';
+import { storyDb, storylineDb, eventDb } from '../src/db/storyDb';
 import EventEditor from './EventEditor';
 
 // Custom node for an event
@@ -992,17 +993,53 @@ const StoryFlow = ({ storylineId }) => {
   };
 
   // Export storyline to JSON
-  const exportToJson = () => {
-    if (!storylineId || !allEvents || allEvents.length === 0) {
-      alert('No events to export');
+  const exportToJson = async () => {
+    if (!storylineId) {
+      alert('Please select a storyline first');
       return;
     }
     
     try {
+      // Get story ID from the current storyline
+      const currentStoryline = await storylineDb.getById(storylineId);
+      if (!currentStoryline) {
+        alert('Could not find the current storyline');
+        return;
+      }
+      
+      const storyId = currentStoryline.storyId;
+      
+      // Get all storylines for this story
+      const allStorylines = await storylineDb.getByStoryId(storyId);
+      if (!allStorylines || allStorylines.length === 0) {
+        alert('No storylines found for this story');
+        return;
+      }
+      
+      // Load all events from all storylines
+      let allStoryEvents = [];
+      for (const sl of allStorylines) {
+        const storylineEvents = await eventDb.getByStorylineId(sl.id);
+        allStoryEvents = [...allStoryEvents, ...storylineEvents];
+      }
+      
+      if (allStoryEvents.length === 0) {
+        alert('No events to export');
+        return;
+      }
+      
       // Create a formatted JSON structure from events
-      const exportData = allEvents.map(event => {
-        // Get the node to access position data
-        const node = nodes.find(n => n.id === event.id);
+      const exportData = allStoryEvents.map(event => {
+        // For events in the current storyline, get node position data
+        let position = { x: 0, y: 0 };
+        if (event.storylineId === storylineId) {
+          const node = nodes.find(n => n.id === event.id);
+          if (node) {
+            position = node.position;
+          }
+        } else {
+          position = event.position || { x: 0, y: 0 };
+        }
         
         // Process options data
         const processedOptions = (event.options || []).map((option, index) => {
@@ -1041,14 +1078,19 @@ const StoryFlow = ({ storylineId }) => {
         // Create final event object
         return {
           id: event.id,
+          storylineId: event.storylineId,  // Include storylineId in export
           title: event.title || '',
           content: event.content || '',
           isStarter: event.isStarter || false,
-          position: node?.position || { x: 0, y: 0 },
+          position: position,
           options: processedOptions,
           triggerRequirements: event.triggerRequirements || []
         };
       });
+      
+      // Get story title to use in filename
+      const story = await storyDb.getById(storyId);
+      const storyTitle = story ? story.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'story';
       
       // Create and download JSON file
       const jsonData = JSON.stringify(exportData, null, 2);
@@ -1057,14 +1099,14 @@ const StoryFlow = ({ storylineId }) => {
       
       const a = document.createElement('a');
       a.href = url;
-      a.download = `storyline_${storylineId}.json`;
+      a.download = `${storyTitle}_all_storylines.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error exporting to JSON:', error);
-      alert('Failed to export storyline to JSON');
+      alert('Failed to export story to JSON');
     }
   };
 
