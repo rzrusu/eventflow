@@ -782,9 +782,10 @@ const StoryFlow = ({ storylineId }) => {
         // Use the current position from the flow
         const position = nodePositions[id] || event.position || { x: 0, y: 0 };
         
-        // Convert options to simple text array and create corresponding links array with probabilities
+        // Convert options to simple text array and create corresponding targets and effects arrays
         const optionTexts = [];
         const optionTargets = [];
+        const optionEffects = [];
         
         if (options && options.length > 0) {
           options.forEach(option => {
@@ -801,6 +802,18 @@ const StoryFlow = ({ storylineId }) => {
             } else {
               // No targets for this option
               optionTargets.push([]);
+            }
+            
+            // Add the effects for this option
+            if (option.effects && option.effects.length > 0) {
+              // Format effects with skill and value
+              optionEffects.push(option.effects.map(effect => ({
+                skill: effect.skill,
+                value: effect.value
+              })));
+            } else {
+              // No effects for this option
+              optionEffects.push([]);
             }
           });
         }
@@ -824,7 +837,8 @@ const StoryFlow = ({ storylineId }) => {
           title,
           content,
           options: optionTexts,
-          optionTargets, // New field to store target data with probabilities
+          optionTargets, // Array of target data with probabilities
+          optionEffects, // New field to store effect data for each option
           links, // Keep links for backward compatibility
           isStarter: !!isStarter,
           storylineId,
@@ -902,18 +916,38 @@ const StoryFlow = ({ storylineId }) => {
         // Convert the options format based on what's available in the imported data
         let formattedOptions = [];
         
-        // Case 1: We have optionTargets array (new format with probabilities)
-        if (Array.isArray(event.options) && Array.isArray(event.optionTargets) && 
-            event.options.length === event.optionTargets.length) {
+        // Case 1: We have optionTargets and optionEffects arrays (new format with effects and probabilities)
+        if (Array.isArray(event.options) && 
+            Array.isArray(event.optionTargets) && 
+            Array.isArray(event.optionEffects) && 
+            event.options.length === event.optionTargets.length && 
+            event.options.length === event.optionEffects.length) {
+            
+          formattedOptions = event.options.map((text, index) => {
+            const targets = event.optionTargets[index] || [];
+            const effects = event.optionEffects[index] || [];
+            return {
+              text,
+              targets,
+              effects
+            };
+          });
+        }
+        // Case 2: We have optionTargets array but no optionEffects (format with probabilities but no effects)
+        else if (Array.isArray(event.options) && 
+                Array.isArray(event.optionTargets) && 
+                event.options.length === event.optionTargets.length) {
+            
           formattedOptions = event.options.map((text, index) => {
             const targets = event.optionTargets[index] || [];
             return {
               text,
-              targets
+              targets,
+              effects: [] // Initialize empty effects array
             };
           });
         }
-        // Case 2: We have options and links arrays with matching indices (old format)
+        // Case 3: We have options and links arrays with matching indices (old format)
         else if (Array.isArray(event.options) && Array.isArray(event.links)) {
           formattedOptions = event.options.map((text, index) => {
             const targets = [];
@@ -926,20 +960,30 @@ const StoryFlow = ({ storylineId }) => {
             }
             return {
               text,
-              targets
+              targets,
+              effects: [] // Initialize empty effects array
             };
           });
         }
-        // Case 3: We have options as objects with nextEventId or targets (internal format)
+        // Case 4: We have options as objects with nextEventId or targets (internal format)
         else if (Array.isArray(event.options) && event.options.some(opt => typeof opt === 'object')) {
           formattedOptions = event.options.map(opt => {
             // Handle complex option objects
             if (typeof opt === 'object') {
-              // Has targets array
-              if (opt.targets) {
+              // Has targets array and effects array
+              if (opt.targets && opt.effects) {
                 return {
                   text: opt.text,
-                  targets: opt.targets
+                  targets: opt.targets,
+                  effects: opt.effects
+                };
+              }
+              // Has targets array but no effects
+              else if (opt.targets) {
+                return {
+                  text: opt.text,
+                  targets: opt.targets,
+                  effects: [] // Initialize empty effects array
                 };
               }
               // Has nextEventId (convert to targets array)
@@ -949,14 +993,16 @@ const StoryFlow = ({ storylineId }) => {
                   targets: [{
                     eventId: opt.nextEventId,
                     probability: 1
-                  }]
+                  }],
+                  effects: opt.effects || [] // Use existing effects or initialize empty array
                 };
               }
               // Just has text
               else {
                 return {
                   text: opt.text,
-                  targets: []
+                  targets: [],
+                  effects: opt.effects || [] // Use existing effects or initialize empty array
                 };
               }
             }
@@ -964,18 +1010,20 @@ const StoryFlow = ({ storylineId }) => {
             else {
               return {
                 text: opt,
-                targets: []
+                targets: [],
+                effects: [] // Initialize empty effects array
               };
             }
           });
         }
-        // Case 4: We have options as simple strings
+        // Case 5: We have options as simple strings
         else if (Array.isArray(event.options)) {
           formattedOptions = event.options.map(opt => {
             if (typeof opt === 'string') {
               return {
                 text: opt,
-                targets: []
+                targets: [],
+                effects: [] // Initialize empty effects array
               };
             }
             return opt;
@@ -1385,6 +1433,13 @@ const StoryFlow = ({ storylineId }) => {
                         <li>Multiple connections from a single option are possible</li>
                       </ul>
                     </li>
+                    <li><code>optionEffects</code>: Array of skill effects for each option
+                      <ul>
+                        <li>Each effect has a <code>skill</code> name and <code>value</code> modifier</li>
+                        <li>Values can be positive or negative to increase or decrease skills</li>
+                        <li>Multiple effects can be applied by a single option</li>
+                      </ul>
+                    </li>
                     <li><code>position</code>: X,Y coordinates for layout</li>
                     <li><code>isStarter</code>: Set to true for the starting event</li>
                   </ul>
@@ -1394,6 +1449,13 @@ const StoryFlow = ({ storylineId }) => {
                     <li>Drag from the option handle to other events</li>
                     <li>Use the "Edit Probabilities" button to set chances</li>
                     <li>Probability values will normalize to add up to 100%</li>
+                  </ol>
+                  <div>To add skill effects to options:</div>
+                  <ol>
+                    <li>Select an event and add options</li>
+                    <li>Click the "Effects" button next to an option</li>
+                    <li>Add skills and their numeric modifiers</li>
+                    <li>These effects will apply when the player selects this option</li>
                   </ol>
                 </div>
               </div>
