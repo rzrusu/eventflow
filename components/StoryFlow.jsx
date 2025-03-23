@@ -153,6 +153,9 @@ const StoryFlow = ({ storylineId }) => {
   // Track the selected node
   const [selectedNode, setSelectedNode] = useState(null);
   
+  // Track the selected edge
+  const [selectedEdge, setSelectedEdge] = useState(null);
+  
   // Toggle for control panel visibility
   const [showControls, setShowControls] = useState(false);
   
@@ -566,151 +569,112 @@ const StoryFlow = ({ storylineId }) => {
     }
     
     try {
-      // Parse edge ID based on its type
-      if (edge.id.startsWith('edge-option')) {
-        // Regular probability-based edge
-        // Format: edge-option-${source}-${target}-${optionIndex}
-        const [, , source, target, optionIndexStr] = edge.id.split('-');
-        const optionIndex = parseInt(optionIndexStr, 10);
-        
-        console.log(`Deleting probability edge from option ${optionIndex} in event ${source} to ${target}`);
-        
-        // Get the source node
-        const sourceNode = nodes.find(n => n.id === source);
-        if (!sourceNode || !sourceNode.data || !sourceNode.data.options || !sourceNode.data.options[optionIndex]) {
-          console.error("Source node or option not found:", source, optionIndex);
-          return;
-        }
-        
-        // Check if option has targets
-        if (!sourceNode.data.options[optionIndex].targets || sourceNode.data.options[optionIndex].targets.length === 0) {
-          console.error("Option has no targets:", sourceNode.data.options[optionIndex]);
-          return;
-        }
-        
-        // Remove the target from the targets array
-        const updatedTargets = sourceNode.data.options[optionIndex].targets.filter(
-          t => t.eventId !== target
-        );
-        
-        // Update the option's targets array
-        const updatedOptions = [...sourceNode.data.options];
-        updatedOptions[optionIndex] = {
-          ...updatedOptions[optionIndex],
-          targets: updatedTargets
-        };
-        
-        // If there are remaining targets, normalize their probabilities
-        if (updatedTargets.length > 0) {
-          const equalProbability = 1 / updatedTargets.length;
-          updatedOptions[optionIndex].targets = updatedTargets.map(target => ({
-            ...target,
-            probability: equalProbability
-          }));
-        }
-        
-        // Create links array with unique eventIds from all targets
-        const links = [];
-        updatedOptions.forEach(opt => {
-          if (opt.targets && opt.targets.length > 0) {
-            opt.targets.forEach(target => {
-              if (target.eventId && !links.includes(target.eventId)) {
-                links.push(target.eventId);
-              }
-            });
+      // Use edge properties directly instead of parsing the ID
+      const source = edge.source;
+      const target = edge.target;
+      let optionIndex = -1;
+      let isSkillCheck = false;
+      let isSuccess = false;
+      
+      // Get sourceHandle to determine option index and edge type
+      if (edge.sourceHandle) {
+        // Parse the sourceHandle to get the option index and type
+        const handleParts = edge.sourceHandle.split('-');
+        if (handleParts.length >= 2) {
+          // Extract option index from the handle
+          optionIndex = parseInt(handleParts[1], 10);
+          
+          // Check if this is a skill check edge
+          if (handleParts.length === 3) {
+            isSkillCheck = true;
+            isSuccess = handleParts[2] === 'success';
           }
-        });
-        
-        // Update the event in the database
-        await updateEvent(source, {
-          options: updatedOptions,
-          links
-        });
-        
-        // Update the source node in the flow
-        setNodes(prevNodes => prevNodes.map(node => 
-          node.id === source 
-            ? { ...node, data: { ...node.data, options: updatedOptions } } 
-            : node
-        ));
-        
-        // Remove the edge
-        setEdges(prevEdges => prevEdges.filter(e => e.id !== edge.id));
+        }
       }
-      else if (edge.id.startsWith('edge-success') || edge.id.startsWith('edge-failure')) {
-        // Skill check edge
-        // Format: edge-success-${source}-${target}-${optionIndex} or edge-failure-${source}-${target}-${optionIndex}
-        const parts = edge.id.split('-');
-        const isSuccess = parts[1] === 'success';
-        const source = parts[2];
-        const target = parts[3];
-        const optionIndex = parseInt(parts[4], 10);
-        
-        console.log(`Deleting ${isSuccess ? 'success' : 'failure'} edge from option ${optionIndex} in event ${source} to ${target}`);
-        
-        // Get the source node
-        const sourceNode = nodes.find(n => n.id === source);
-        if (!sourceNode || !sourceNode.data || !sourceNode.data.options || !sourceNode.data.options[optionIndex]) {
-          console.error("Source node or option not found:", source, optionIndex);
-          return;
-        }
-        
-        // Check if option has targets and skill check
-        if (!sourceNode.data.options[optionIndex].targets || 
-            sourceNode.data.options[optionIndex].targets.length === 0 ||
-            !sourceNode.data.options[optionIndex].skillCheck) {
-          console.error("Option has no targets or no skill check:", sourceNode.data.options[optionIndex]);
-          return;
-        }
-        
-        // Print current targets for debugging
-        console.log("Current targets before deletion:", sourceNode.data.options[optionIndex].targets);
-        
-        // Remove the specific skill check outcome target
-        const updatedTargets = sourceNode.data.options[optionIndex].targets.filter(
+      
+      console.log(`Edge information extracted: source=${source}, target=${target}, optionIndex=${optionIndex}, isSkillCheck=${isSkillCheck}, isSuccess=${isSuccess}`);
+      
+      if (isNaN(optionIndex) || optionIndex < 0) {
+        console.error("Could not determine valid option index from edge:", edge);
+        return;
+      }
+      
+      // Get the source node
+      const sourceNode = nodes.find(n => n.id === source);
+      if (!sourceNode || !sourceNode.data || !sourceNode.data.options || !sourceNode.data.options[optionIndex]) {
+        console.error("Source node or option not found:", source, optionIndex);
+        return;
+      }
+      
+      // Check if option has targets
+      if (!sourceNode.data.options[optionIndex].targets || sourceNode.data.options[optionIndex].targets.length === 0) {
+        console.error("Option has no targets:", sourceNode.data.options[optionIndex]);
+        return;
+      }
+      
+      // Remove the appropriate target based on the edge type
+      let updatedTargets;
+      
+      if (isSkillCheck) {
+        // Remove skill check outcome target (success or failure)
+        console.log(`Removing ${isSuccess ? 'success' : 'failure'} target for option ${optionIndex}`);
+        updatedTargets = sourceNode.data.options[optionIndex].targets.filter(
           t => !(t.eventId === target && t.isSkillCheckOutcome === true && t.isSuccess === isSuccess)
         );
-        
-        console.log("Targets after deletion:", updatedTargets);
-        
-        // Update the option's targets array
-        const updatedOptions = [...sourceNode.data.options];
-        updatedOptions[optionIndex] = {
-          ...updatedOptions[optionIndex],
-          targets: updatedTargets
-        };
-        
-        // Create links array with unique eventIds from all targets
-        const links = [];
-        updatedOptions.forEach(opt => {
-          if (opt.targets && opt.targets.length > 0) {
-            opt.targets.forEach(target => {
-              if (target.eventId && !links.includes(target.eventId)) {
-                links.push(target.eventId);
-              }
-            });
-          }
-        });
-        
-        // Update the event in the database
-        await updateEvent(source, {
-          options: updatedOptions,
-          links
-        });
-        
-        // Update the source node in the flow
-        setNodes(prevNodes => prevNodes.map(node => 
-          node.id === source 
-            ? { ...node, data: { ...node.data, options: updatedOptions } } 
-            : node
-        ));
-        
-        // Remove the edge
-        setEdges(prevEdges => prevEdges.filter(e => e.id !== edge.id));
+      } else {
+        // Remove regular target
+        console.log(`Removing regular target for option ${optionIndex}`);
+        updatedTargets = sourceNode.data.options[optionIndex].targets.filter(
+          t => t.eventId !== target
+        );
       }
-      else {
-        console.error("Unknown edge type for deletion:", edge);
+      
+      console.log("Targets after deletion:", updatedTargets);
+      
+      // Update the option's targets array
+      const updatedOptions = [...sourceNode.data.options];
+      updatedOptions[optionIndex] = {
+        ...updatedOptions[optionIndex],
+        targets: updatedTargets
+      };
+      
+      // If there are remaining targets for normal connections, normalize their probabilities
+      if (!isSkillCheck && updatedTargets.length > 0) {
+        const equalProbability = 1 / updatedTargets.length;
+        updatedOptions[optionIndex].targets = updatedTargets.map(target => ({
+          ...target,
+          probability: equalProbability
+        }));
       }
+      
+      // Create links array with unique eventIds from all targets
+      const links = [];
+      updatedOptions.forEach(opt => {
+        if (opt.targets && opt.targets.length > 0) {
+          opt.targets.forEach(target => {
+            if (target.eventId && !links.includes(target.eventId)) {
+              links.push(target.eventId);
+            }
+          });
+        }
+      });
+      
+      // Update the event in the database
+      await updateEvent(source, {
+        options: updatedOptions,
+        links
+      });
+      
+      // Update the source node in the flow
+      setNodes(prevNodes => prevNodes.map(node => 
+        node.id === source 
+          ? { ...node, data: { ...node.data, options: updatedOptions } } 
+          : node
+      ));
+      
+      // Remove the edge
+      setEdges(prevEdges => prevEdges.filter(e => e.id !== edge.id));
+      
     } catch (error) {
       console.error('Error removing connection:', error);
       alert('Error removing connection. Please try again.');
@@ -726,6 +690,13 @@ const StoryFlow = ({ storylineId }) => {
   // Handle node selection
   const onNodeClick = (event, node) => {
     setSelectedNode(node.id);
+    setSelectedEdge(null); // Deselect any edge when selecting a node
+  };
+  
+  // Handle edge selection
+  const onEdgeClick = (event, edge) => {
+    setSelectedEdge(edge);
+    setSelectedNode(null); // Deselect any node when selecting an edge
   };
   
   // Handle node double-click to edit
@@ -734,9 +705,10 @@ const StoryFlow = ({ storylineId }) => {
     setEditingNodeData(node.data);
   };
   
-  // Handle click on canvas to deselect node
+  // Handle click on canvas to deselect
   const onPaneClick = () => {
     setSelectedNode(null);
+    setSelectedEdge(null);
   };
   
   // Create a new event node
@@ -1461,6 +1433,76 @@ const StoryFlow = ({ storylineId }) => {
     }
   };
 
+  // Delete the selected edge manually
+  const deleteSelectedEdge = () => {
+    if (!selectedEdge) return;
+    
+    console.log("Deleting selected edge:", selectedEdge);
+    
+    try {
+      // Call the edge delete function with the selected edge
+      onEdgeDelete(selectedEdge);
+      
+      // Clear the selection
+      setSelectedEdge(null);
+    } catch (error) {
+      console.error("Error deleting edge:", error);
+      alert("Failed to delete the connection. Please try again.");
+    }
+  };
+
+  // Highlight the selected edge 
+  useEffect(() => {
+    if (selectedEdge) {
+      setEdges(eds => 
+        eds.map(edge => {
+          if (edge.id === selectedEdge.id) {
+            // Apply styling to highlight selected edge
+            return {
+              ...edge,
+              style: { 
+                strokeWidth: 3,
+                stroke: '#FF9800'
+              },
+              animated: true,
+              zIndex: 1000
+            };
+          } else {
+            // Remove any special styling from other edges
+            const { style, ...rest } = edge;
+            return rest;
+          }
+        })
+      );
+    } else {
+      // Remove styling from all edges when deselecting
+      setEdges(eds => 
+        eds.map(edge => {
+          const { style, ...rest } = edge;
+          return rest;
+        })
+      );
+    }
+  }, [selectedEdge, setEdges]);
+
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      // Delete key (Delete or Backspace)
+      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedEdge) {
+        console.log("Delete key pressed while edge selected");
+        event.preventDefault(); // Prevent browser navigation in some browsers
+        deleteSelectedEdge();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedEdge]); // Only re-run when selectedEdge changes
+
   return (
     <div className="story-flow-container">
       <ReactFlow
@@ -1471,6 +1513,7 @@ const StoryFlow = ({ storylineId }) => {
         onNodeDragStop={onNodeDragStop}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
+        onEdgeClick={onEdgeClick}
         onNodeDoubleClick={onNodeDoubleClick}
         onPaneClick={onPaneClick}
         deleteKeyCode="Delete"
@@ -1486,6 +1529,7 @@ const StoryFlow = ({ storylineId }) => {
         elementsSelectable={true}
         selectNodesOnDrag={false}
         connectionLineType="default"
+        edgesFocusable={true}
       >
         <Controls showInteractive={false} position="bottom-right" />
         <MiniMap nodeStrokeWidth={3} zoomable pannable position="bottom-left" />
@@ -1536,6 +1580,48 @@ const StoryFlow = ({ storylineId }) => {
           >
             ⚙️
           </button>
+          
+          {/* Edge controls appear when an edge is selected */}
+          {selectedEdge && (
+            <div className="flow-edge-controls">
+              <div className="edge-controls-label">Connection Options</div>
+              <div className="edge-info">
+                {selectedEdge.id.startsWith('edge-option') ? (
+                  <div className="edge-type probability">Probability Connection</div>
+                ) : selectedEdge.id.startsWith('edge-success') ? (
+                  <div className="edge-type success">Success Path</div>
+                ) : selectedEdge.id.startsWith('edge-failure') ? (
+                  <div className="edge-type failure">Failure Path</div>
+                ) : (
+                  <div className="edge-type">Connection</div>
+                )}
+                <div className="edge-connection">
+                  <span className="edge-from">
+                    From: {allEvents.find(e => e.id === selectedEdge.source)?.title || 'Unknown'}
+                  </span>
+                  <span className="edge-arrow">→</span>
+                  <span className="edge-to">
+                    To: {allEvents.find(e => e.id === selectedEdge.target)?.title || 'Unknown'}
+                  </span>
+                </div>
+                {selectedEdge.label && (
+                  <div className="edge-label">
+                    {selectedEdge.label}
+                  </div>
+                )}
+              </div>
+              <button 
+                className="control-btn delete-btn"
+                onClick={deleteSelectedEdge}
+                title="Delete Connection"
+              >
+                🗑️ Delete Connection
+              </button>
+              <div className="edge-help">
+                You can also press Delete to remove this connection
+              </div>
+            </div>
+          )}
           
           {/* Node controls appear when a node is selected */}
           {selectedNode && (
@@ -1831,6 +1917,99 @@ const StoryFlow = ({ storylineId }) => {
           color: #2196f3;
           font-weight: bold;
           margin-left: 5px;
+        }
+        
+        .flow-edge-controls {
+          background-color: white;
+          border-radius: 8px;
+          box-shadow: 0px 2px 10px rgba(0, 0, 0, 0.1);
+          padding: 12px;
+          margin-bottom: 10px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        
+        .edge-controls-label {
+          font-weight: bold;
+          font-size: 14px;
+          color: #333;
+          margin-bottom: 4px;
+        }
+        
+        .flow-edge-controls .control-btn {
+          padding: 6px 12px;
+          border-radius: 4px;
+          border: none;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 13px;
+          white-space: nowrap;
+        }
+        
+        .flow-edge-controls .delete-btn {
+          background-color: #f44336;
+          color: white;
+        }
+        
+        .flow-edge-controls .delete-btn:hover {
+          background-color: #d32f2f;
+        }
+        
+        .edge-info {
+          background-color: #f5f5f5;
+          border-radius: 6px;
+          padding: 8px 12px;
+          margin-bottom: 10px;
+          font-size: 13px;
+        }
+        
+        .edge-type {
+          font-weight: bold;
+          margin-bottom: 5px;
+          color: #333;
+        }
+        
+        .edge-type.probability {
+          color: #2196f3;
+        }
+        
+        .edge-type.success {
+          color: #4caf50;
+        }
+        
+        .edge-type.failure {
+          color: #f44336;
+        }
+        
+        .edge-connection {
+          display: flex;
+          align-items: center;
+          margin-bottom: 5px;
+        }
+        
+        .edge-arrow {
+          margin: 0 8px;
+          color: #757575;
+        }
+        
+        .edge-label {
+          background-color: #e3f2fd;
+          color: #1976d2;
+          display: inline-block;
+          padding: 3px 8px;
+          border-radius: 4px;
+          margin-top: 5px;
+          font-weight: bold;
+        }
+        
+        .edge-help {
+          font-size: 12px;
+          color: #757575;
+          font-style: italic;
+          margin-top: 6px;
         }
       `}</style>
     </div>
