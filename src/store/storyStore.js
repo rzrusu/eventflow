@@ -63,9 +63,12 @@ const useStoryStore = create((set, get) => ({
         stories: state.stories.map(s => s.id === storyId ? updatedStory : s),
         isLoading: false
       }));
+      
+      return updatedStory;
     } catch (error) {
       console.error('Failed to update story', error);
       set({ error: 'Failed to update story', isLoading: false });
+      return null;
     }
   },
   
@@ -162,7 +165,12 @@ const useStoryStore = create((set, get) => ({
       const updatedStoryline = { ...storyline, ...updates };
       
       await storylineDb.update(updatedStoryline);
-      set({ isLoading: false });
+      
+      // Update the storylines array in state
+      set(state => ({
+        storylines: state.storylines.map(sl => sl.id === storylineId ? updatedStoryline : sl),
+        isLoading: false
+      }));
       
       return updatedStoryline;
     } catch (error) {
