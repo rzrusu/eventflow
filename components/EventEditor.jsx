@@ -8,6 +8,7 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [editingEffects, setEditingEffects] = useState(false);
+  const [editingSkillCheck, setEditingSkillCheck] = useState(false);
   const [currentOptionIndex, setCurrentOptionIndex] = useState(null);
   
   // Get the updateEvent function from the store
@@ -19,11 +20,12 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
       setTitle(eventData.title || '');
       setContent(eventData.content || '');
       
-      // Ensure all options have an effects array
+      // Ensure all options have an effects array and skillCheck property
       setOptions(eventData.options?.map(option => ({
         ...option,
         targets: option.targets || [],
-        effects: option.effects || [] // Initialize effects array if not present
+        effects: option.effects || [], // Initialize effects array if not present
+        skillCheck: option.skillCheck || null // Initialize skillCheck if not present
       })) || []);
     }
   }, [eventData]);
@@ -70,7 +72,8 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
     setOptions([...options, {
       text: `Option ${options.length + 1}`,
       targets: [],
-      effects: [] // Initialize empty effects array
+      effects: [], // Initialize empty effects array
+      skillCheck: null // Initialize with no skill check
     }]);
   };
   
@@ -170,6 +173,87 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
     setOptions(updatedOptions);
   };
   
+  // Open the skill check editor for an option
+  const openSkillCheckEditor = (index) => {
+    setCurrentOptionIndex(index);
+    setEditingSkillCheck(true);
+  };
+  
+  // Add a skill check to the current option
+  const addSkillCheck = () => {
+    if (currentOptionIndex === null) return;
+    
+    const updatedOptions = [...options];
+    updatedOptions[currentOptionIndex].skillCheck = {
+      skill: "",
+      minValue: 0
+    };
+    setOptions(updatedOptions);
+  };
+  
+  // Update a skill check
+  const updateSkillCheck = (field, value) => {
+    if (currentOptionIndex === null) return;
+    
+    const updatedOptions = [...options];
+    
+    if (field === 'minValue') {
+      // Make sure we handle numeric values correctly
+      const numericValue = parseInt(value, 10);
+      
+      // If it's a valid number, use it (clamped between 0 and 100); otherwise default to 0
+      if (!isNaN(numericValue)) {
+        // Clamp value between 0 and 100
+        const clampedValue = Math.max(0, Math.min(100, numericValue));
+        updatedOptions[currentOptionIndex].skillCheck.minValue = clampedValue;
+      } else {
+        updatedOptions[currentOptionIndex].skillCheck.minValue = 0;
+      }
+    } else {
+      // For non-numeric fields (like skill name)
+      updatedOptions[currentOptionIndex].skillCheck[field] = value;
+    }
+    
+    setOptions(updatedOptions);
+  };
+  
+  // Remove a skill check
+  const removeSkillCheck = () => {
+    if (currentOptionIndex === null) return;
+    
+    const updatedOptions = [...options];
+    updatedOptions[currentOptionIndex].skillCheck = null;
+    setOptions(updatedOptions);
+  };
+  
+  // Increment the minimum value for a skill check
+  const incrementMinValue = () => {
+    if (currentOptionIndex === null || !options[currentOptionIndex].skillCheck) return;
+    
+    const updatedOptions = [...options];
+    const currentValue = updatedOptions[currentOptionIndex].skillCheck.minValue;
+    
+    // Increment and clamp between 0 and 100
+    updatedOptions[currentOptionIndex].skillCheck.minValue = 
+      Math.min(100, currentValue + 1);
+    
+    setOptions(updatedOptions);
+  };
+  
+  // Decrement the minimum value for a skill check
+  const decrementMinValue = () => {
+    if (currentOptionIndex === null || !options[currentOptionIndex].skillCheck) return;
+    
+    const updatedOptions = [...options];
+    const currentValue = updatedOptions[currentOptionIndex].skillCheck.minValue;
+    
+    // Decrement and clamp between 0 and 100 (skill check can't be negative)
+    updatedOptions[currentOptionIndex].skillCheck.minValue = 
+      Math.max(0, currentValue - 1);
+    
+    setOptions(updatedOptions);
+  };
+  
   if (!eventData) {
     return <div className="event-editor error">Event data not available</div>;
   }
@@ -237,6 +321,13 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
                         🎮 Effects {option.effects && option.effects.length > 0 ? `(${option.effects.length})` : ''}
                       </button>
                       <button 
+                        className="skill-check-btn"
+                        onClick={() => openSkillCheckEditor(index)}
+                        title="Edit skill check"
+                      >
+                        🎯 Skill Check {option.skillCheck ? '✓' : ''}
+                      </button>
+                      <button 
                         className="remove-option-btn"
                         onClick={() => removeOption(index)}
                         title="Remove option"
@@ -254,6 +345,15 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
                           {effect.skill} {effect.value > 0 ? `+${effect.value}` : effect.value}
                         </span>
                       ))}
+                    </div>
+                  )}
+                  
+                  {/* Skill check summary display */}
+                  {option.skillCheck && (
+                    <div className="skill-check-summary">
+                      <span className="skill-check-tag">
+                        Requires {option.skillCheck.skill}: {option.skillCheck.minValue}+
+                      </span>
                     </div>
                   )}
                   
@@ -397,7 +497,97 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
         </div>
       )}
       
-      <style jsx>{`
+      {/* Skill Check Editor Modal */}
+      {editingSkillCheck && currentOptionIndex !== null && (
+        <div className="skill-check-editor-backdrop">
+          <div className="skill-check-editor">
+            <div className="skill-check-editor-header">
+              <h3>Edit Skill Check for "{options[currentOptionIndex].text}"</h3>
+              <button 
+                className="close-skill-check-btn"
+                onClick={() => setEditingSkillCheck(false)}
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="skill-check-editor-content">
+              <h4>Skill Check Editor</h4>
+              <p className="skill-check-help">
+                Define a skill check for this option. If the player's skill level meets or exceeds the minimum value,
+                they will pass the check. You can then connect this option to different events based on success or failure.
+              </p>
+              
+              {!options[currentOptionIndex].skillCheck ? (
+                <button 
+                  className="add-skill-check-btn"
+                  onClick={addSkillCheck}
+                >
+                  Add Skill Check
+                </button>
+              ) : (
+                <div className="skill-check-form">
+                  <div className="skill-check-row">
+                    <input
+                      type="text"
+                      className="skill-input"
+                      placeholder="Skill name (e.g. strength, intelligence)"
+                      value={options[currentOptionIndex].skillCheck.skill}
+                      onChange={(e) => updateSkillCheck('skill', e.target.value)}
+                    />
+                    <div className="value-control">
+                      <button 
+                        className="value-btn decrease-btn" 
+                        onClick={decrementMinValue}
+                        type="button"
+                      >
+                        -
+                      </button>
+                      <input
+                        type="number"
+                        className="value-input"
+                        placeholder="Min Value"
+                        value={options[currentOptionIndex].skillCheck.minValue}
+                        onChange={(e) => updateSkillCheck('minValue', e.target.value)}
+                        min="0"
+                        max="100"
+                      />
+                      <button 
+                        className="value-btn increase-btn" 
+                        onClick={incrementMinValue}
+                        type="button"
+                      >
+                        +
+                      </button>
+                    </div>
+                    <button 
+                      className="remove-skill-check-btn" 
+                      onClick={removeSkillCheck}
+                      type="button"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className="connection-note">
+                    After saving, use the flow editor to connect Success/Failure paths to different events
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="skill-check-editor-footer">
+              <button 
+                className="close-skill-check-btn"
+                onClick={() => setEditingSkillCheck(false)}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      <style>{`
         .event-editor {
           position: absolute;
           top: 50%;
@@ -800,6 +990,203 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
           border-top: 1px solid #eee;
           display: flex;
           justify-content: flex-end;
+        }
+        
+        /* Skill Check Editor Styles */
+        .skill-check-editor-backdrop {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1200;
+        }
+        
+        .skill-check-editor {
+          background: white;
+          border-radius: 8px;
+          width: 500px;
+          max-width: 90vw;
+          box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
+          max-height: 90vh;
+          display: flex;
+          flex-direction: column;
+        }
+        
+        .skill-check-editor-header {
+          padding: 16px 20px;
+          border-bottom: 1px solid #eee;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        
+        .skill-check-editor-header h3 {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 500;
+        }
+        
+        .close-skill-check-btn {
+          background: none;
+          border: none;
+          font-size: 20px;
+          cursor: pointer;
+          color: #777;
+        }
+        
+        .skill-check-editor-content {
+          padding: 20px;
+          overflow-y: auto;
+          max-height: 60vh;
+        }
+        
+        .skill-check-help {
+          margin-top: 0;
+          margin-bottom: 15px;
+          color: #555;
+          font-size: 14px;
+        }
+        
+        .add-skill-check-btn {
+          padding: 8px 16px;
+          background: #673ab7;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          margin-bottom: 15px;
+        }
+        
+        .add-skill-check-btn:hover {
+          background: #5e35b1;
+        }
+        
+        .skill-check-form {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        
+        .skill-check-row {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+        }
+        
+        .skill-input {
+          flex: 2;
+        }
+        
+        .value-control {
+          display: flex;
+          align-items: center;
+          flex: 1;
+        }
+        
+        .value-input {
+          width: 60px;
+          text-align: center;
+          border-radius: 0;
+        }
+        
+        .value-btn {
+          width: 28px;
+          height: 28px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #f1f1f1;
+          border: 1px solid #ddd;
+          cursor: pointer;
+          font-weight: bold;
+          font-size: 16px;
+          padding: 0;
+        }
+        
+        .decrease-btn {
+          border-radius: 4px 0 0 4px;
+          border-right: none;
+          color: #d32f2f;
+        }
+        
+        .increase-btn {
+          border-radius: 0 4px 4px 0;
+          border-left: none;
+          color: #4caf50;
+        }
+        
+        .value-btn:hover {
+          background: #e5e5e5;
+        }
+        
+        .remove-skill-check-btn {
+          background: #f44336;
+          color: white;
+          border: none;
+          width: 24px;
+          height: 24px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          font-size: 14px;
+        }
+        
+        .remove-skill-check-btn:hover {
+          background: #e53935;
+        }
+        
+        .no-skill-check {
+          font-style: italic;
+          color: #777;
+          text-align: center;
+        }
+        
+        .skill-check-editor-footer {
+          padding: 16px 20px;
+          border-top: 1px solid #eee;
+          display: flex;
+          justify-content: flex-end;
+        }
+        
+        .skill-check-btn {
+          padding: 6px 10px;
+          background: #ff9800;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 12px;
+          white-space: nowrap;
+        }
+        
+        .skill-check-btn:hover {
+          background: #f57c00;
+        }
+        
+        .skill-check-summary {
+          margin-top: 5px;
+          margin-bottom: 10px;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 5px;
+        }
+        
+        .skill-check-tag {
+          background: #fff3e0;
+          color: #e65100;
+          padding: 3px 8px;
+          border-radius: 4px;
+          font-size: 12px;
+          border: 1px solid #ffe0b2;
+          display: flex;
+          align-items: center;
         }
       `}</style>
     </div>

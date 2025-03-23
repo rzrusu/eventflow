@@ -584,4 +584,70 @@
   width: 14px;
   height: 14px;
   transform: translate(-2px, -2px);
+}
+
+/* Skill check styling */
+.event-option-skill-check {
+  background: #fff3e0;
+  border-left: 3px solid #ff9800;
+}
+
+.event-option-skill-check:hover {
+  background: #ffe0b2;
+}
+
+.option-skill-check {
+  display: block;
+  font-size: 11px;
+  background: #ffcc80;
+  color: #e65100;
+  padding: 2px 4px;
+  border-radius: 2px;
+  margin-top: 3px;
+}
+
+/* Success handle styling */
+.success-handle {
+  background: #4caf50 !important;
+  border: 2px solid #388e3c !important;
+}
+
+.success-handle:hover {
+  background: #66bb6a !important;
+}
+
+/* Failure handle styling */
+.failure-handle {
+  background: #f44336 !important;
+  border: 2px solid #d32f2f !important;
+}
+
+.failure-handle:hover {
+  background: #e57373 !important;
+}
+
+/* Success/Failure edge styling */
+.react-flow__edge.success-edge .react-flow__edge-path {
+  stroke: #4caf50;
+  stroke-width: 2;
+}
+
+.react-flow__edge.failure-edge .react-flow__edge-path {
+  stroke: #f44336;
+  stroke-width: 2;
+}
+
+/* Skill check event styling */
+.skill-check-event {
+  border-left: 5px solid #ff9800;
+}
+
+.skill-check-badge {
+  background-color: #ff9800;
+  color: white;
+  font-size: 10px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  margin-left: 5px;
+  font-weight: normal;
 } 

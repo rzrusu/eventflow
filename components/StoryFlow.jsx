@@ -38,11 +38,17 @@ const EventNode = ({ data }) => {
     }
   };
 
+  // Check if any option has a skill check
+  const hasSkillCheckOptions = data.options && data.options.some(option => 
+    option.skillCheck && option.skillCheck.skill
+  );
+
   return (
-    <div className={`event-node ${data.isStarter ? 'starter-event' : ''}`}>
+    <div className={`event-node ${data.isStarter ? 'starter-event' : ''} ${hasSkillCheckOptions ? 'skill-check-event' : ''}`}>
       <div className="event-title">
         {data.title}
         {data.isStarter && <span className="starter-badge">Starter</span>}
+        {hasSkillCheckOptions && <span className="skill-check-badge">Skill Check</span>}
       </div>
       <div className="event-content">
         {data.content && data.content.substring(0, 100)}
@@ -51,13 +57,22 @@ const EventNode = ({ data }) => {
       <div className="event-options">
         {data.options && data.options.map((option, index) => {
           const connectionSummary = getOptionConnectionSummary(option);
+          const hasSkillCheck = option.skillCheck && option.skillCheck.skill;
+          
           return (
             <div
               key={index}
-              className={`event-option ${connectionSummary.isConnected ? 'event-option-connected' : ''}`}
+              className={`event-option ${connectionSummary.isConnected ? 'event-option-connected' : ''} ${hasSkillCheck ? 'event-option-skill-check' : ''}`}
               title={connectionSummary.info}
             >
-              <div className="option-text">{option.text}</div>
+              <div className="option-text">
+                {option.text}
+                {hasSkillCheck && (
+                  <span className="option-skill-check">
+                    {option.skillCheck.skill}: {option.skillCheck.minValue}+
+                  </span>
+                )}
+              </div>
               {connectionSummary.isConnected && (
                 <div className="option-connection-indicator">
                   {option.targets && option.targets.length > 1 
@@ -65,18 +80,52 @@ const EventNode = ({ data }) => {
                     : '→'}
                 </div>
               )}
-              <Handle
-                type="source"
-                position={Position.Right}
-                id={`option-${index}`}
-                className="option-handle"
-                style={{ 
-                  right: -4, 
-                  top: '50%', 
-                  background: connectionSummary.isConnected ? '#2196f3' : '#ddd',
-                  border: connectionSummary.isConnected ? '2px solid #1565c0' : '2px solid #bbb'
-                }}
-              />
+              
+              {/* For regular options or options with probability-based targeting */}
+              {!hasSkillCheck && (
+                <Handle
+                  type="source"
+                  position={Position.Right}
+                  id={`option-${index}`}
+                  className="option-handle"
+                  style={{ 
+                    right: -4, 
+                    top: '50%', 
+                    background: connectionSummary.isConnected ? '#2196f3' : '#ddd',
+                    border: connectionSummary.isConnected ? '2px solid #1565c0' : '2px solid #bbb'
+                  }}
+                />
+              )}
+              
+              {/* For options with skill checks, add success and failure handles */}
+              {hasSkillCheck && (
+                <>
+                  <Handle
+                    type="source"
+                    position={Position.Right}
+                    id={`option-${index}-success`}
+                    className="option-handle success-handle"
+                    style={{ 
+                      right: -4, 
+                      top: '35%', 
+                      background: '#4caf50',
+                      border: '2px solid #388e3c'
+                    }}
+                  />
+                  <Handle
+                    type="source"
+                    position={Position.Right}
+                    id={`option-${index}-failure`}
+                    className="option-handle failure-handle"
+                    style={{ 
+                      right: -4, 
+                      top: '65%', 
+                      background: '#f44336',
+                      border: '2px solid #d32f2f'
+                    }}
+                  />
+                </>
+              )}
             </div>
           );
         })}
@@ -196,6 +245,19 @@ const StoryFlow = ({ storylineId }) => {
               }
             }
             
+            // Initialize skillCheck field if not present
+            const needsSkillCheck = event.options.some(opt => opt.skillCheck === undefined);
+            if (needsSkillCheck) {
+              needsUpdate = true;
+              
+              // Add skillCheck field to options that don't have it
+              for (let i = 0; i < updatedOptions.length; i++) {
+                if (updatedOptions[i].skillCheck === undefined) {
+                  updatedOptions[i].skillCheck = null;
+                }
+              }
+            }
+            
             // Update the event if changes were made
             if (needsUpdate) {
               // Update the event with the new options format
@@ -242,23 +304,46 @@ const StoryFlow = ({ storylineId }) => {
                       return;
                     }
                     
-                    // Calculate probability percentage for the label
-                    const probability = target.probability || 1;
-                    const probabilityText = Math.round(probability * 100);
-                    
-                    // Debug edge creation
-                    console.log(`Creating edge from ${event.id} to ${target.eventId} with sourceHandle: option-${index} and targetHandle: target`);
-                    
-                    flowEdges.push({
-                      id: `edge-option-${event.id}-${target.eventId}-${index}`,
-                      source: event.id,
-                      target: target.eventId,
-                      sourceHandle: `option-${index}`,
-                      targetHandle: 'target',
-                      type: 'default',
-                      animated: true,
-                      label: `${probabilityText}%`
-                    });
+                    // Check if this is a skill check outcome
+                    if (option.skillCheck && target.isSkillCheckOutcome) {
+                      // This is a skill check outcome (success or failure)
+                      const isSuccess = target.isSuccess === true;
+                      const sourceHandleId = `option-${index}-${isSuccess ? 'success' : 'failure'}`;
+                      
+                      console.log(`Creating skill check edge from ${event.id} to ${target.eventId} with sourceHandle: ${sourceHandleId}`);
+                      
+                      // Create edge for skill check outcome
+                      flowEdges.push({
+                        id: `edge-${isSuccess ? 'success' : 'failure'}-${event.id}-${target.eventId}-${index}`,
+                        source: event.id,
+                        target: target.eventId,
+                        sourceHandle: sourceHandleId,
+                        targetHandle: 'target',
+                        type: 'default',
+                        animated: true,
+                        label: isSuccess ? 'Success' : 'Failure',
+                        className: isSuccess ? 'success-edge' : 'failure-edge'
+                      });
+                    } else {
+                      // Regular probability-based edge
+                      // Calculate probability percentage for the label
+                      const probability = target.probability || 1;
+                      const probabilityText = Math.round(probability * 100);
+                      
+                      // Debug edge creation
+                      console.log(`Creating edge from ${event.id} to ${target.eventId} with sourceHandle: option-${index} and targetHandle: target`);
+                      
+                      flowEdges.push({
+                        id: `edge-option-${event.id}-${target.eventId}-${index}`,
+                        source: event.id,
+                        target: target.eventId,
+                        sourceHandle: `option-${index}`,
+                        targetHandle: 'target',
+                        type: 'default',
+                        animated: true,
+                        label: `${probabilityText}%`
+                      });
+                    }
                   }
                 });
               }
@@ -311,11 +396,33 @@ const StoryFlow = ({ storylineId }) => {
     // Check if connection is from an option handle (source)
     if (sourceHandle && sourceHandle.startsWith('option-')) {
       try {
-        const optionIndex = parseInt(sourceHandle.replace('option-', ''), 10);
+        // Parse the sourceHandle to determine if it's a regular option or a skill check
+        let optionIndex;
+        let isSkillCheck = false;
+        let isSuccess = false;
+        
+        // Split the handle ID to get its components
+        const handleParts = sourceHandle.split('-');
+        
+        if (handleParts.length === 3) {
+          // This is a skill check outcome: 'option-INDEX-success|failure'
+          optionIndex = parseInt(handleParts[1], 10);
+          isSkillCheck = true;
+          isSuccess = handleParts[2] === 'success';
+          console.log(`Detected skill check ${isSuccess ? 'success' : 'failure'} connection for option ${optionIndex}`);
+        } else if (handleParts.length === 2) {
+          // Regular option: 'option-INDEX'
+          optionIndex = parseInt(handleParts[1], 10);
+          console.log(`Detected regular connection for option ${optionIndex}`);
+        } else {
+          console.error("Invalid handle format:", sourceHandle);
+          return;
+        }
         
         // Get the source node
         const sourceNode = nodes.find(n => n.id === source);
         if (!sourceNode || !sourceNode.data || !sourceNode.data.options || !sourceNode.data.options[optionIndex]) {
+          console.error(`Source node or option index ${optionIndex} not found:`, sourceNode);
           return;
         }
         
@@ -324,30 +431,58 @@ const StoryFlow = ({ storylineId }) => {
           sourceNode.data.options[optionIndex].targets = [];
         }
         
-        // Check if target already exists
-        const existingTargetIndex = sourceNode.data.options[optionIndex].targets.findIndex(
-          t => t.eventId === target
-        );
-        
-        // If the target doesn't exist, add it with default probability
-        if (existingTargetIndex === -1) {
-          // Calculate default probability (equal distribution)
-          const newProbability = 1 / (sourceNode.data.options[optionIndex].targets.length + 1);
+        // Handle skill check connections differently
+        if (isSkillCheck) {
+          // For skill checks, check if there's already a connection for this outcome (success/failure)
+          const existingTargetIndex = sourceNode.data.options[optionIndex].targets.findIndex(
+            t => t.eventId === target && t.isSkillCheckOutcome === true && t.isSuccess === isSuccess
+          );
           
-          // Add the new target
-          sourceNode.data.options[optionIndex].targets.push({
-            eventId: target,
-            probability: newProbability
-          });
-          
-          // Normalize probabilities for all targets
-          sourceNode.data.options[optionIndex].targets = sourceNode.data.options[optionIndex].targets.map(t => ({
-            ...t,
-            probability: newProbability
-          }));
+          if (existingTargetIndex === -1) {
+            console.log(`Adding new skill check ${isSuccess ? 'success' : 'failure'} target:`, target);
+            
+            // Add the new target with skill check outcome information
+            sourceNode.data.options[optionIndex].targets.push({
+              eventId: target,
+              isSkillCheckOutcome: true,
+              isSuccess: isSuccess,
+              probability: 1 // Not used for skill checks but keeping for consistency
+            });
+          } else {
+            // Target already exists, don't create duplicate connection
+            console.log(`Target already exists for ${isSuccess ? 'success' : 'failure'} outcome:`, target);
+            return;
+          }
         } else {
-          // Target already exists, don't create duplicate connection
-          return;
+          // Handle regular probability-based connections
+          // Check if target already exists
+          const existingTargetIndex = sourceNode.data.options[optionIndex].targets.findIndex(
+            t => t.eventId === target
+          );
+          
+          // If the target doesn't exist, add it with default probability
+          if (existingTargetIndex === -1) {
+            // Calculate default probability (equal distribution)
+            const newProbability = 1 / (sourceNode.data.options[optionIndex].targets.length + 1);
+            
+            console.log(`Adding new probability-based target with ${newProbability * 100}% probability:`, target);
+            
+            // Add the new target
+            sourceNode.data.options[optionIndex].targets.push({
+              eventId: target,
+              probability: newProbability
+            });
+            
+            // Normalize probabilities for all targets
+            sourceNode.data.options[optionIndex].targets = sourceNode.data.options[optionIndex].targets.map(t => ({
+              ...t,
+              probability: newProbability
+            }));
+          } else {
+            // Target already exists, don't create duplicate connection
+            console.log(`Target already exists:`, target);
+            return;
+          }
         }
         
         // Create links array with unique eventIds from all targets
@@ -368,16 +503,31 @@ const StoryFlow = ({ storylineId }) => {
           links
         });
         
-        // Get the target event title for the edge label
+        // Get the target event title for edge information
         const targetEvent = allEvents.find(e => e.id === target);
         const targetTitle = targetEvent ? targetEvent.title : 'Unknown Event';
         
         // Create an edge
-        const edgeId = `edge-option-${source}-${target}-${optionIndex}`;
-        const probability = sourceNode.data.options[optionIndex].targets.find(t => t.eventId === target)?.probability || 0;
-        const probabilityText = Math.round(probability * 100);
+        let edgeId;
+        let edgeLabel;
+        let edgeClass = '';
         
-        // Create edge with probability label
+        if (isSkillCheck) {
+          // For skill check edges
+          edgeId = `edge-${isSuccess ? 'success' : 'failure'}-${source}-${target}-${optionIndex}`;
+          edgeLabel = isSuccess ? 'Success' : 'Failure';
+          edgeClass = isSuccess ? 'success-edge' : 'failure-edge';
+          console.log(`Creating skill check edge: ${edgeId}, label: ${edgeLabel}`);
+        } else {
+          // For probability-based edges
+          edgeId = `edge-option-${source}-${target}-${optionIndex}`;
+          const probability = sourceNode.data.options[optionIndex].targets.find(t => t.eventId === target)?.probability || 0;
+          const probabilityText = Math.round(probability * 100);
+          edgeLabel = `${probabilityText}%`;
+          console.log(`Creating probability edge: ${edgeId}, label: ${edgeLabel}`);
+        }
+        
+        // Create edge
         const edge = {
           id: edgeId,
           source,
@@ -386,7 +536,8 @@ const StoryFlow = ({ storylineId }) => {
           targetHandle,
           type: 'default',
           animated: true,
-          label: `${probabilityText}%`
+          label: edgeLabel,
+          className: edgeClass
         };
         
         // Add the edge to the flow
@@ -409,76 +560,157 @@ const StoryFlow = ({ storylineId }) => {
   const onEdgeDelete = useCallback(async (edge) => {
     console.log("Attempting to delete edge:", edge);
     
-    if (!edge || !edge.id.startsWith('edge-option')) {
+    if (!edge || !edge.id) {
       console.error("Invalid edge for deletion:", edge);
       return;
     }
     
-    // Parse edge ID to get source, target, and option index
-    // Format: edge-option-${source}-${target}-${optionIndex}
-    const [, , source, target, optionIndexStr] = edge.id.split('-');
-    const optionIndex = parseInt(optionIndexStr, 10);
-    
-    // Get the source node
-    const sourceNode = nodes.find(n => n.id === source);
-    if (!sourceNode || !sourceNode.data || !sourceNode.data.options || !sourceNode.data.options[optionIndex]) {
-      return;
-    }
-    
-    // Check if option has targets
-    if (!sourceNode.data.options[optionIndex].targets || sourceNode.data.options[optionIndex].targets.length === 0) {
-      return;
-    }
-    
     try {
-      // Remove the target from the targets array
-      const updatedTargets = sourceNode.data.options[optionIndex].targets.filter(
-        t => t.eventId !== target
-      );
-      
-      // Update the option's targets array
-      const updatedOptions = [...sourceNode.data.options];
-      updatedOptions[optionIndex] = {
-        ...updatedOptions[optionIndex],
-        targets: updatedTargets
-      };
-      
-      // If there are remaining targets, normalize their probabilities
-      if (updatedTargets.length > 0) {
-        const equalProbability = 1 / updatedTargets.length;
-        updatedOptions[optionIndex].targets = updatedTargets.map(target => ({
-          ...target,
-          probability: equalProbability
-        }));
-      }
-      
-      // Create links array with unique eventIds from all targets
-      const links = [];
-      updatedOptions.forEach(opt => {
-        if (opt.targets && opt.targets.length > 0) {
-          opt.targets.forEach(target => {
-            if (target.eventId && !links.includes(target.eventId)) {
-              links.push(target.eventId);
-            }
-          });
+      // Parse edge ID based on its type
+      if (edge.id.startsWith('edge-option')) {
+        // Regular probability-based edge
+        // Format: edge-option-${source}-${target}-${optionIndex}
+        const [, , source, target, optionIndexStr] = edge.id.split('-');
+        const optionIndex = parseInt(optionIndexStr, 10);
+        
+        console.log(`Deleting probability edge from option ${optionIndex} in event ${source} to ${target}`);
+        
+        // Get the source node
+        const sourceNode = nodes.find(n => n.id === source);
+        if (!sourceNode || !sourceNode.data || !sourceNode.data.options || !sourceNode.data.options[optionIndex]) {
+          console.error("Source node or option not found:", source, optionIndex);
+          return;
         }
-      });
-      
-      // Update the event in the database
-      await updateEvent(source, {
-        options: updatedOptions,
-        links
-      });
-      
-      // Update the source node in the flow
-      setNodes(prevNodes => prevNodes.map(node => 
-        node.id === source 
-          ? { ...node, data: { ...node.data, options: updatedOptions } } 
-          : node
-      ));
-      
-      // Remove the edge
-      setEdges(prevEdges => prevEdges.filter(e => e.id !== edge.id));
+        
+        // Check if option has targets
+        if (!sourceNode.data.options[optionIndex].targets || sourceNode.data.options[optionIndex].targets.length === 0) {
+          console.error("Option has no targets:", sourceNode.data.options[optionIndex]);
+          return;
+        }
+        
+        // Remove the target from the targets array
+        const updatedTargets = sourceNode.data.options[optionIndex].targets.filter(
+          t => t.eventId !== target
+        );
+        
+        // Update the option's targets array
+        const updatedOptions = [...sourceNode.data.options];
+        updatedOptions[optionIndex] = {
+          ...updatedOptions[optionIndex],
+          targets: updatedTargets
+        };
+        
+        // If there are remaining targets, normalize their probabilities
+        if (updatedTargets.length > 0) {
+          const equalProbability = 1 / updatedTargets.length;
+          updatedOptions[optionIndex].targets = updatedTargets.map(target => ({
+            ...target,
+            probability: equalProbability
+          }));
+        }
+        
+        // Create links array with unique eventIds from all targets
+        const links = [];
+        updatedOptions.forEach(opt => {
+          if (opt.targets && opt.targets.length > 0) {
+            opt.targets.forEach(target => {
+              if (target.eventId && !links.includes(target.eventId)) {
+                links.push(target.eventId);
+              }
+            });
+          }
+        });
+        
+        // Update the event in the database
+        await updateEvent(source, {
+          options: updatedOptions,
+          links
+        });
+        
+        // Update the source node in the flow
+        setNodes(prevNodes => prevNodes.map(node => 
+          node.id === source 
+            ? { ...node, data: { ...node.data, options: updatedOptions } } 
+            : node
+        ));
+        
+        // Remove the edge
+        setEdges(prevEdges => prevEdges.filter(e => e.id !== edge.id));
+      }
+      else if (edge.id.startsWith('edge-success') || edge.id.startsWith('edge-failure')) {
+        // Skill check edge
+        // Format: edge-success-${source}-${target}-${optionIndex} or edge-failure-${source}-${target}-${optionIndex}
+        const parts = edge.id.split('-');
+        const isSuccess = parts[1] === 'success';
+        const source = parts[2];
+        const target = parts[3];
+        const optionIndex = parseInt(parts[4], 10);
+        
+        console.log(`Deleting ${isSuccess ? 'success' : 'failure'} edge from option ${optionIndex} in event ${source} to ${target}`);
+        
+        // Get the source node
+        const sourceNode = nodes.find(n => n.id === source);
+        if (!sourceNode || !sourceNode.data || !sourceNode.data.options || !sourceNode.data.options[optionIndex]) {
+          console.error("Source node or option not found:", source, optionIndex);
+          return;
+        }
+        
+        // Check if option has targets and skill check
+        if (!sourceNode.data.options[optionIndex].targets || 
+            sourceNode.data.options[optionIndex].targets.length === 0 ||
+            !sourceNode.data.options[optionIndex].skillCheck) {
+          console.error("Option has no targets or no skill check:", sourceNode.data.options[optionIndex]);
+          return;
+        }
+        
+        // Print current targets for debugging
+        console.log("Current targets before deletion:", sourceNode.data.options[optionIndex].targets);
+        
+        // Remove the specific skill check outcome target
+        const updatedTargets = sourceNode.data.options[optionIndex].targets.filter(
+          t => !(t.eventId === target && t.isSkillCheckOutcome === true && t.isSuccess === isSuccess)
+        );
+        
+        console.log("Targets after deletion:", updatedTargets);
+        
+        // Update the option's targets array
+        const updatedOptions = [...sourceNode.data.options];
+        updatedOptions[optionIndex] = {
+          ...updatedOptions[optionIndex],
+          targets: updatedTargets
+        };
+        
+        // Create links array with unique eventIds from all targets
+        const links = [];
+        updatedOptions.forEach(opt => {
+          if (opt.targets && opt.targets.length > 0) {
+            opt.targets.forEach(target => {
+              if (target.eventId && !links.includes(target.eventId)) {
+                links.push(target.eventId);
+              }
+            });
+          }
+        });
+        
+        // Update the event in the database
+        await updateEvent(source, {
+          options: updatedOptions,
+          links
+        });
+        
+        // Update the source node in the flow
+        setNodes(prevNodes => prevNodes.map(node => 
+          node.id === source 
+            ? { ...node, data: { ...node.data, options: updatedOptions } } 
+            : node
+        ));
+        
+        // Remove the edge
+        setEdges(prevEdges => prevEdges.filter(e => e.id !== edge.id));
+      }
+      else {
+        console.error("Unknown edge type for deletion:", edge);
+      }
     } catch (error) {
       console.error('Error removing connection:', error);
       alert('Error removing connection. Please try again.');
@@ -688,23 +920,46 @@ const StoryFlow = ({ storylineId }) => {
                     return;
                   }
                   
-                  // Calculate probability percentage for the label
-                  const probability = target.probability || 1;
-                  const probabilityText = Math.round(probability * 100);
-                  
-                  // Debug edge creation in handleEventEditorClose
-                  console.log(`Creating edge after edit: ${event.id} to ${target.eventId}, sourceHandle: option-${index}, targetHandle: target`);
-                  
-                  newEdges.push({
-                    id: `edge-option-${event.id}-${target.eventId}-${index}`,
-                    source: event.id,
-                    target: target.eventId,
-                    sourceHandle: `option-${index}`,
-                    targetHandle: 'target',
-                    type: 'default',
-                    animated: true,
-                    label: `${probabilityText}%`
-                  });
+                  // Check if this is a skill check outcome
+                  if (option.skillCheck && target.isSkillCheckOutcome) {
+                    // This is a skill check outcome (success or failure)
+                    const isSuccess = target.isSuccess === true;
+                    const sourceHandleId = `option-${index}-${isSuccess ? 'success' : 'failure'}`;
+                    
+                    console.log(`Creating skill check edge from ${event.id} to ${target.eventId} with sourceHandle: ${sourceHandleId}`);
+                    
+                    // Create edge for skill check outcome
+                    newEdges.push({
+                      id: `edge-${isSuccess ? 'success' : 'failure'}-${event.id}-${target.eventId}-${index}`,
+                      source: event.id,
+                      target: target.eventId,
+                      sourceHandle: sourceHandleId,
+                      targetHandle: 'target',
+                      type: 'default',
+                      animated: true,
+                      label: isSuccess ? 'Success' : 'Failure',
+                      className: isSuccess ? 'success-edge' : 'failure-edge'
+                    });
+                  } else {
+                    // Regular probability-based edge
+                    // Calculate probability percentage for the label
+                    const probability = target.probability || 1;
+                    const probabilityText = Math.round(probability * 100);
+                    
+                    // Debug edge creation in handleEventEditorClose
+                    console.log(`Creating edge after edit: ${event.id} to ${target.eventId}, sourceHandle: option-${index}, targetHandle: target`);
+                    
+                    newEdges.push({
+                      id: `edge-option-${event.id}-${target.eventId}-${index}`,
+                      source: event.id,
+                      target: target.eventId,
+                      sourceHandle: `option-${index}`,
+                      targetHandle: 'target',
+                      type: 'default',
+                      animated: true,
+                      label: `${probabilityText}%`
+                    });
+                  }
                 }
               });
             }
@@ -758,354 +1013,289 @@ const StoryFlow = ({ storylineId }) => {
     }
     
     try {
-      // Create a deep copy of the events to avoid modifying the original data
-      const eventsToExport = JSON.parse(JSON.stringify(allEvents));
-      
-      // Get the current node positions from the flow
-      const nodePositions = {};
-      nodes.forEach(node => {
-        nodePositions[node.id] = node.position;
-      });
-      
-      // Format the data for export with the new simplified format
-      const formattedEvents = eventsToExport.map(event => {
-        // Keep all the important fields
-        const { 
-          id, 
-          title, 
-          content, 
-          options, 
-          isStarter, 
-          storylineId
-        } = event;
+      // Create a formatted JSON structure from events
+      const exportData = allEvents.map(event => {
+        // Get the node to access position data
+        const node = nodes.find(n => n.id === event.id);
         
-        // Use the current position from the flow
-        const position = nodePositions[id] || event.position || { x: 0, y: 0 };
+        // Process options data
+        const processedOptions = (event.options || []).map((option, index) => {
+          // Get all targets for this option
+          const targets = option.targets || [];
+          
+          // Check if this is a skill check option
+          if (option.skillCheck && option.skillCheck.skill) {
+            // For skill check options, we need to organize targets by success/failure
+            const successTargets = targets
+              .filter(t => t.isSkillCheckOutcome && t.isSuccess)
+              .map(t => t.eventId);
+              
+            const failureTargets = targets
+              .filter(t => t.isSkillCheckOutcome && !t.isSuccess)
+              .map(t => t.eventId);
+              
+            return {
+              text: option.text,
+              skillCheck: option.skillCheck,
+              successTargets: successTargets,
+              failureTargets: failureTargets,
+              effects: option.effects || []
+            };
+          } else {
+            // For regular probability-based options
+            return {
+              text: option.text,
+              optionTargets: targets.map(target => target.eventId),
+              optionProbabilities: targets.map(target => target.probability || 1),
+              effects: option.effects || []
+            };
+          }
+        });
         
-        // Convert options to simple text array and create corresponding targets and effects arrays
-        const optionTexts = [];
-        const optionTargets = [];
-        const optionEffects = [];
-        
-        if (options && options.length > 0) {
-          options.forEach(option => {
-            // Add the option text to the options array
-            optionTexts.push(option.text);
-            
-            // Add the targets for this option
-            if (option.targets && option.targets.length > 0) {
-              // Format targets with eventId and probability
-              optionTargets.push(option.targets.map(target => ({
-                eventId: target.eventId,
-                probability: target.probability
-              })));
-            } else {
-              // No targets for this option
-              optionTargets.push([]);
-            }
-            
-            // Add the effects for this option
-            if (option.effects && option.effects.length > 0) {
-              // Format effects with skill and value
-              optionEffects.push(option.effects.map(effect => ({
-                skill: effect.skill,
-                value: effect.value
-              })));
-            } else {
-              // No effects for this option
-              optionEffects.push([]);
-            }
-          });
-        }
-        
-        // Create a links array with all unique target IDs for backward compatibility
-        const links = [];
-        if (options && options.length > 0) {
-          options.forEach(option => {
-            if (option.targets && option.targets.length > 0) {
-              option.targets.forEach(target => {
-                if (target.eventId && !links.includes(target.eventId)) {
-                  links.push(target.eventId);
-                }
-              });
-            }
-          });
-        }
-        
+        // Create final event object
         return {
-          id,
-          title,
-          content,
-          options: optionTexts,
-          optionTargets, // Array of target data with probabilities
-          optionEffects, // New field to store effect data for each option
-          links, // Keep links for backward compatibility
-          isStarter: !!isStarter,
-          storylineId,
-          position
+          id: event.id,
+          title: event.title || '',
+          content: event.content || '',
+          isStarter: event.isStarter || false,
+          position: node?.position || { x: 0, y: 0 },
+          options: processedOptions
         };
       });
       
-      // Create a Blob with the JSON data
-      const jsonString = JSON.stringify(formattedEvents, null, 2);
-      const blob = new Blob([jsonString], { type: 'application/json' });
-      
-      // Create a download link
+      // Create and download JSON file
+      const jsonData = JSON.stringify(exportData, null, 2);
+      const blob = new Blob([jsonData], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
+      
       const a = document.createElement('a');
       a.href = url;
-      a.download = `storyline-${storylineId}.json`;
-      
-      // Trigger the download
+      a.download = `storyline_${storylineId}.json`;
       document.body.appendChild(a);
       a.click();
-      
-      // Clean up
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      
-      console.log('Storyline exported successfully');
     } catch (error) {
-      console.error('Error exporting storyline:', error);
-      alert('Error exporting storyline. Check console for details.');
+      console.error('Error exporting to JSON:', error);
+      alert('Failed to export storyline to JSON');
     }
   };
 
   // Import storyline from JSON
-  const importFromJson = async (event) => {
+  const importFromJson = async (e) => {
     if (!storylineId) {
       alert('Please select a storyline first');
       return;
     }
     
-    const file = event.target.files[0];
+    const file = e.target.files[0];
     if (!file) return;
     
     try {
       // Read the file
-      const fileContent = await file.text();
-      const importedEvents = JSON.parse(fileContent);
+      const text = await file.text();
+      const data = JSON.parse(text);
       
-      if (!Array.isArray(importedEvents) || importedEvents.length === 0) {
-        throw new Error('Invalid file format. Expected an array of events.');
-      }
-      
-      // Ask for confirmation before importing
-      if (!window.confirm(`Import ${importedEvents.length} events? This will replace your current events in this storyline.`)) {
-        // Reset the file input
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
-        }
+      // Validate it's an array
+      if (!Array.isArray(data)) {
+        alert('Invalid format: JSON must be an array of events');
         return;
       }
       
-      // Delete all existing events in this storyline
-      const existingEvents = await loadEvents(storylineId);
-      for (const event of existingEvents) {
-        await deleteEvent(event.id);
+      // Check if there's at least one event
+      if (data.length === 0) {
+        alert('No events found in the JSON file');
+        return;
       }
       
-      // Import all events
-      for (const event of importedEvents) {
-        // Make sure each event belongs to the current storyline
-        const eventToImport = {
-          ...event,
-          storylineId
-        };
+      // Ask for confirmation if there are existing events
+      if (allEvents.length > 0) {
+        const confirm = window.confirm(
+          `This will replace all existing events in this storyline. Continue?`
+        );
         
-        // Convert the options format based on what's available in the imported data
+        if (!confirm) {
+          // Reset the file input
+          e.target.value = '';
+          return;
+        }
+        
+        // Delete existing events
+        for (const event of allEvents) {
+          await deleteEvent(event.id);
+        }
+      }
+      
+      // Process and import events
+      const importedEvents = [];
+      
+      for (const eventData of data) {
+        // Extract basic event data
+        const { id, title, content, position, isStarter } = eventData;
+        
+        // Format options based on the data format
         let formattedOptions = [];
         
-        // Case 1: We have optionTargets and optionEffects arrays (new format with effects and probabilities)
-        if (Array.isArray(event.options) && 
-            Array.isArray(event.optionTargets) && 
-            Array.isArray(event.optionEffects) && 
-            event.options.length === event.optionTargets.length && 
-            event.options.length === event.optionEffects.length) {
+        // Case 1: Options with both optionTargets and optionEffects/skillChecks (new format)
+        if (Array.isArray(eventData.options) && typeof eventData.options[0] === 'object') {
+          formattedOptions = eventData.options.map(opt => {
+            // Base option object with text
+            const formattedOption = {
+              text: opt.text || 'Option',
+              targets: [],
+              effects: []
+            };
             
-          formattedOptions = event.options.map((text, index) => {
-            const targets = event.optionTargets[index] || [];
-            const effects = event.optionEffects[index] || [];
-            return {
-              text,
-              targets,
-              effects
-            };
-          });
-        }
-        // Case 2: We have optionTargets array but no optionEffects (format with probabilities but no effects)
-        else if (Array.isArray(event.options) && 
-                Array.isArray(event.optionTargets) && 
-                event.options.length === event.optionTargets.length) {
-            
-          formattedOptions = event.options.map((text, index) => {
-            const targets = event.optionTargets[index] || [];
-            return {
-              text,
-              targets,
-              effects: [] // Initialize empty effects array
-            };
-          });
-        }
-        // Case 3: We have options and links arrays with matching indices (old format)
-        else if (Array.isArray(event.options) && Array.isArray(event.links)) {
-          formattedOptions = event.options.map((text, index) => {
-            const targets = [];
-            // If this option has a matching link (by index), create a target with 100% probability
-            if (event.links.length > index && event.links[index]) {
-              targets.push({
-                eventId: event.links[index],
-                probability: 1
-              });
-            }
-            return {
-              text,
-              targets,
-              effects: [] // Initialize empty effects array
-            };
-          });
-        }
-        // Case 4: We have options as objects with nextEventId or targets (internal format)
-        else if (Array.isArray(event.options) && event.options.some(opt => typeof opt === 'object')) {
-          formattedOptions = event.options.map(opt => {
-            // Handle complex option objects
-            if (typeof opt === 'object') {
-              // Has targets array and effects array
-              if (opt.targets && opt.effects) {
-                return {
-                  text: opt.text,
-                  targets: opt.targets,
-                  effects: opt.effects
-                };
-              }
-              // Has targets array but no effects
-              else if (opt.targets) {
-                return {
-                  text: opt.text,
-                  targets: opt.targets,
-                  effects: [] // Initialize empty effects array
-                };
-              }
-              // Has nextEventId (convert to targets array)
-              else if (opt.nextEventId) {
-                return {
-                  text: opt.text,
-                  targets: [{
-                    eventId: opt.nextEventId,
-                    probability: 1
-                  }],
-                  effects: opt.effects || [] // Use existing effects or initialize empty array
-                };
-              }
-              // Just has text
-              else {
-                return {
-                  text: opt.text,
-                  targets: [],
-                  effects: opt.effects || [] // Use existing effects or initialize empty array
-                };
-              }
-            }
-            // Simple string option
-            else {
-              return {
-                text: opt,
-                targets: [],
-                effects: [] // Initialize empty effects array
+            // Process skill check option
+            if (opt.skillCheck && (opt.successTargets || opt.failureTargets)) {
+              // Add skill check to the option
+              formattedOption.skillCheck = {
+                skill: opt.skillCheck.skill || '',
+                minValue: opt.skillCheck.minValue || 0
               };
-            }
-          });
-        }
-        // Case 5: We have options as simple strings
-        else if (Array.isArray(event.options)) {
-          formattedOptions = event.options.map(opt => {
-            if (typeof opt === 'string') {
-              return {
-                text: opt,
-                targets: [],
-                effects: [] // Initialize empty effects array
-              };
-            }
-            return opt;
-          });
-        }
-        
-        // Update the event with our formatted options
-        eventToImport.options = formattedOptions;
-        
-        // Create the event in the database
-        await createEvent(storylineId, eventToImport);
-      }
-      
-      // Reload the events
-      const dbEvents = await loadEvents(storylineId);
-      setAllEvents(dbEvents);
-      
-      // Update the nodes with fresh data
-      const flowNodes = dbEvents.map(event => {
-        console.log(`Creating node with id: ${event.id}`);
-        return {
-          id: event.id,
-          type: 'event',
-          position: event.position || { x: 0, y: 0 },
-          data: {
-            ...event,
-            isStarter: !!event.isStarter,
-            allEvents: dbEvents
-          }
-        };
-      });
-      
-      // Create edges from options
-      const flowEdges = [];
-      
-      dbEvents.forEach(event => {
-        // Add edges from options
-        if (event.options && event.options.length > 0) {
-          event.options.forEach((option, index) => {
-            // Create edges for each target in the targets array
-            if (option.targets && option.targets.length > 0) {
-              option.targets.forEach(target => {
-                if (target.eventId) {
-                  // Calculate probability percentage for the label
-                  const probability = target.probability || 1;
-                  const probabilityText = Math.round(probability * 100);
-                  
-                  flowEdges.push({
-                    id: `edge-option-${event.id}-${target.eventId}-${index}`,
-                    source: event.id,
-                    target: target.eventId,
-                    sourceHandle: `option-${index}`,
-                    targetHandle: 'target',
-                    type: 'default',
-                    animated: true,
-                    label: `${probabilityText}%`
+              
+              // Add success targets
+              if (Array.isArray(opt.successTargets)) {
+                opt.successTargets.forEach(targetId => {
+                  formattedOption.targets.push({
+                    eventId: targetId,
+                    isSkillCheckOutcome: true,
+                    isSuccess: true,
+                    probability: 1 // Not used but keeping for consistency
                   });
-                }
+                });
+              }
+              
+              // Add failure targets
+              if (Array.isArray(opt.failureTargets)) {
+                opt.failureTargets.forEach(targetId => {
+                  formattedOption.targets.push({
+                    eventId: targetId,
+                    isSkillCheckOutcome: true,
+                    isSuccess: false,
+                    probability: 1 // Not used but keeping for consistency
+                  });
+                });
+              }
+            } 
+            // Process probability-based option
+            else if (Array.isArray(opt.optionTargets)) {
+              // Add targets with probabilities
+              const optionTargets = opt.optionTargets || [];
+              const optionProbabilities = opt.optionProbabilities || Array(optionTargets.length).fill(1/Math.max(1, optionTargets.length));
+              
+              optionTargets.forEach((targetId, i) => {
+                const probability = i < optionProbabilities.length ? optionProbabilities[i] : 1/optionTargets.length;
+                formattedOption.targets.push({
+                  eventId: targetId,
+                  probability
+                });
               });
             }
+            
+            // Add effects if present
+            if (Array.isArray(opt.effects)) {
+              formattedOption.effects = opt.effects.map(effect => ({
+                skill: effect.skill || '',
+                value: effect.value || 0
+              }));
+            }
+            
+            return formattedOption;
           });
         }
-      });
-      
-      setNodes(flowNodes);
-      setEdges(flowEdges);
-      setSelectedNode(null);
+        // Case 2: Old format with arrays
+        else if (Array.isArray(eventData.options) && Array.isArray(eventData.optionTargets)) {
+          // Convert string options and targets arrays to objects
+          formattedOptions = eventData.options.map((text, index) => {
+            const option = {
+              text,
+              targets: [],
+              effects: []
+            };
+            
+            // Add targets if available
+            if (eventData.optionTargets && eventData.optionTargets[index]) {
+              const targets = eventData.optionTargets[index];
+              const probabilities = eventData.optionProbabilities && eventData.optionProbabilities[index];
+              
+              if (Array.isArray(targets)) {
+                targets.forEach((target, i) => {
+                  const targetId = typeof target === 'object' ? target.eventId : target;
+                  const probability = 
+                    (probabilities && i < probabilities.length) ? probabilities[i] : 
+                    (typeof target === 'object' ? target.probability : 1/targets.length);
+                  
+                  option.targets.push({
+                    eventId: targetId,
+                    probability
+                  });
+                });
+              }
+            }
+            
+            // Add effects if available
+            if (eventData.optionEffects && eventData.optionEffects[index]) {
+              const effects = eventData.optionEffects[index];
+              
+              if (Array.isArray(effects)) {
+                option.effects = effects.map(effect => ({
+                  skill: effect.skill || '',
+                  value: effect.value || 0
+                }));
+              }
+            }
+            
+            return option;
+          });
+        }
+        // Case 3: Simple string options
+        else if (Array.isArray(eventData.options) && typeof eventData.options[0] === 'string') {
+          formattedOptions = eventData.options.map(text => ({
+            text,
+            targets: [],
+            effects: []
+          }));
+        }
+        
+        // Create links array with unique eventIds from all targets
+        const links = [];
+        formattedOptions.forEach(opt => {
+          if (opt.targets && opt.targets.length > 0) {
+            opt.targets.forEach(target => {
+              if (target.eventId && !links.includes(target.eventId)) {
+                links.push(target.eventId);
+              }
+            });
+          }
+        });
+        
+        // Create the event
+        const newEvent = await createEvent(storylineId, {
+          id: id || `event_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`,
+          title: title || 'Untitled Event',
+          content: content || '',
+          options: formattedOptions,
+          links,
+          position: position || { x: 0, y: 0 },
+          isStarter: !!isStarter
+        });
+        
+        importedEvents.push(newEvent);
+      }
       
       // Reset the file input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      e.target.value = '';
       
-      alert('Storyline imported successfully!');
+      // Refresh the flow
+      await loadEvents(storylineId);
+      
+      alert(`Successfully imported ${importedEvents.length} events!`);
     } catch (error) {
       console.error('Error importing storyline:', error);
-      alert(`Error importing storyline: ${error.message}`);
-      
+      alert('Error importing storyline. Check console for details.');
       // Reset the file input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      e.target.value = '';
     }
   };
   
@@ -1283,7 +1473,10 @@ const StoryFlow = ({ storylineId }) => {
         onNodeClick={onNodeClick}
         onNodeDoubleClick={onNodeDoubleClick}
         onPaneClick={onPaneClick}
-        onEdgeDelete={onEdgeDelete}
+        deleteKeyCode="Delete"
+        onEdgesDelete={(edges) => {
+          edges.forEach(edge => onEdgeDelete(edge));
+        }}
         nodeTypes={nodeTypes}
         fitView
         minZoom={0.5}
@@ -1440,6 +1633,13 @@ const StoryFlow = ({ storylineId }) => {
                         <li>Multiple effects can be applied by a single option</li>
                       </ul>
                     </li>
+                    <li><code>skillCheck</code>: Define skill requirements for options
+                      <ul>
+                        <li>Each skill check has a <code>skill</code> name and <code>minValue</code> requirement</li>
+                        <li>Connect success path from the green (top) handle</li>
+                        <li>Connect failure path from the red (bottom) handle</li>
+                      </ul>
+                    </li>
                     <li><code>position</code>: X,Y coordinates for layout</li>
                     <li><code>isStarter</code>: Set to true for the starting event</li>
                   </ul>
@@ -1456,6 +1656,14 @@ const StoryFlow = ({ storylineId }) => {
                     <li>Click the "Effects" button next to an option</li>
                     <li>Add skills and their numeric modifiers</li>
                     <li>These effects will apply when the player selects this option</li>
+                  </ol>
+                  <div>To create skill check options:</div>
+                  <ol>
+                    <li>Select an event and add options</li>
+                    <li>Click the "Skill Check" button next to an option</li>
+                    <li>Define the skill name and minimum value required</li>
+                    <li>Connect success path (green handle) to the success event</li>
+                    <li>Connect failure path (red handle) to the failure event</li>
                   </ol>
                 </div>
               </div>
@@ -1590,7 +1798,7 @@ const StoryFlow = ({ storylineId }) => {
         </div>
       )}
       
-      <style jsx>{`
+      <style>{`
         .story-flow-container {
           width: 100%;
           height: 100%;
