@@ -2,6 +2,82 @@ import React, { useState, useEffect } from 'react';
 import useStoryStore from '../src/store/storyStore';
 import { beautifyContent } from '../src/utils/geminiUtils';
 
+// Define the available skill options
+const SKILL_OPTIONS = {
+  // Personality skills
+  personality: [
+    'temperament',
+    'sociability',
+    'leadershipStyle',
+    'ambition',
+    'professionalism',
+    'adaptability',
+    'pressureHandling',
+    'loyalty'
+  ],
+  // Technical skills
+  technical: [
+    'technical',
+    'corners',
+    'crossing',
+    'dribbling',
+    'finishing',
+    'freeKickAccuracy',
+    'heading',
+    'longShots',
+    'longThrows',
+    'marking',
+    'passing',
+    'penaltyTaking',
+    'tackling',
+    'technique'
+  ],
+  // Mental skills
+  mental: [
+    'aggression',
+    'anticipation',
+    'bravery',
+    'composure',
+    'concentration',
+    'decisions',
+    'determination',
+    'flair',
+    'leadership',
+    'offTheBall',
+    'positioning',
+    'teamwork',
+    'vision',
+    'workRate'
+  ],
+  // Physical skills
+  physical: [
+    'acceleration',
+    'agility',
+    'balance',
+    'jumpingReach',
+    'naturalFitness',
+    'pace',
+    'stamina'
+  ]
+};
+
+// Flatten all skills into a single array
+const ALL_SKILLS = [
+  ...SKILL_OPTIONS.personality,
+  ...SKILL_OPTIONS.technical,
+  ...SKILL_OPTIONS.mental,
+  ...SKILL_OPTIONS.physical
+];
+
+// Helper function to format skill names for display
+const formatSkillName = (skillName) => {
+  if (!skillName) return '';
+  // Add spaces before capital letters and capitalize the first letter
+  return skillName
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, str => str.toUpperCase());
+};
+
 const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -118,7 +194,7 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
     const updatedOptions = [...options];
     updatedOptions[currentOptionIndex].effects = [
       ...(updatedOptions[currentOptionIndex].effects || []),
-      { skill: "", value: 0 } // Start with neutral value
+      { skill: ALL_SKILLS[0] || "", value: 0 } // Initialize with first skill in list
     ];
     setOptions(updatedOptions);
   };
@@ -198,8 +274,8 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
     
     const updatedOptions = [...options];
     updatedOptions[currentOptionIndex].skillCheck = {
-      skill: "",
-      minValue: 0
+      skill: ALL_SKILLS[0] || "",
+      minValue: 50 // Default to middle value
     };
     setOptions(updatedOptions);
   };
@@ -447,7 +523,7 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
                     <div className="effects-summary">
                       {option.effects.map((effect, i) => (
                         <span key={i} className="effect-tag">
-                          {effect.skill} {effect.value > 0 ? `+${effect.value}` : effect.value}
+                          {formatSkillName(effect.skill)} {effect.value > 0 ? `+${effect.value}` : effect.value}
                         </span>
                       ))}
                     </div>
@@ -457,7 +533,7 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
                   {option.skillCheck && (
                     <div className="skill-check-summary">
                       <span className="skill-check-tag">
-                        Requires {option.skillCheck.skill}: {option.skillCheck.minValue}+
+                        Requires {formatSkillName(option.skillCheck.skill)}: {option.skillCheck.minValue}+
                       </span>
                     </div>
                   )}
@@ -567,13 +643,43 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
                 <div className="effects-list">
                   {options[currentOptionIndex].effects.map((effect, effectIndex) => (
                     <div key={effectIndex} className="effect-item">
-                      <input
-                        type="text"
-                        className="skill-input"
-                        placeholder="Skill name"
-                        value={effect.skill}
-                        onChange={(e) => updateEffect(effectIndex, 'skill', e.target.value)}
-                      />
+                      <div className="skill-select-container">
+                        <select
+                          className="skill-select"
+                          value={effect.skill}
+                          onChange={(e) => updateEffect(effectIndex, 'skill', e.target.value)}
+                        >
+                          <option value="">-- Select a Skill --</option>
+                          <optgroup label="Personality">
+                            {SKILL_OPTIONS.personality.map(skill => (
+                              <option key={skill} value={skill}>
+                                {formatSkillName(skill)}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="Technical">
+                            {SKILL_OPTIONS.technical.map(skill => (
+                              <option key={skill} value={skill}>
+                                {formatSkillName(skill)}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="Mental">
+                            {SKILL_OPTIONS.mental.map(skill => (
+                              <option key={skill} value={skill}>
+                                {formatSkillName(skill)}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="Physical">
+                            {SKILL_OPTIONS.physical.map(skill => (
+                              <option key={skill} value={skill}>
+                                {formatSkillName(skill)}
+                              </option>
+                            ))}
+                          </optgroup>
+                        </select>
+                      </div>
                       <div className="value-control">
                         <button 
                           className="value-btn decrease-btn" 
@@ -659,13 +765,43 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
               ) : (
                 <div className="skill-check-form">
                   <div className="skill-check-row">
-                    <input
-                      type="text"
-                      className="skill-input"
-                      placeholder="Skill name (e.g. strength, intelligence)"
-                      value={options[currentOptionIndex].skillCheck.skill}
-                      onChange={(e) => updateSkillCheck('skill', e.target.value)}
-                    />
+                    <div className="skill-select-container">
+                      <select
+                        className="skill-select"
+                        value={options[currentOptionIndex].skillCheck.skill}
+                        onChange={(e) => updateSkillCheck('skill', e.target.value)}
+                      >
+                        <option value="">-- Select a Skill --</option>
+                        <optgroup label="Personality">
+                          {SKILL_OPTIONS.personality.map(skill => (
+                            <option key={skill} value={skill}>
+                              {formatSkillName(skill)}
+                            </option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="Technical">
+                          {SKILL_OPTIONS.technical.map(skill => (
+                            <option key={skill} value={skill}>
+                              {formatSkillName(skill)}
+                            </option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="Mental">
+                          {SKILL_OPTIONS.mental.map(skill => (
+                            <option key={skill} value={skill}>
+                              {formatSkillName(skill)}
+                            </option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="Physical">
+                          {SKILL_OPTIONS.physical.map(skill => (
+                            <option key={skill} value={skill}>
+                              {formatSkillName(skill)}
+                            </option>
+                          ))}
+                        </optgroup>
+                      </select>
+                    </div>
                     <div className="value-control">
                       <button 
                         className="value-btn decrease-btn" 
@@ -1129,8 +1265,18 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
           align-items: center;
         }
         
-        .skill-input {
+        .skill-select-container {
           flex: 2;
+        }
+        
+        .skill-select {
+          width: 100%;
+          padding: 8px 10px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          font-size: 14px;
+          height: 36px;
+          background-color: white;
         }
         
         .value-control {
@@ -1292,8 +1438,18 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
           align-items: center;
         }
         
-        .skill-input {
+        .skill-select-container {
           flex: 2;
+        }
+        
+        .skill-select {
+          width: 100%;
+          padding: 8px 10px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          font-size: 14px;
+          height: 36px;
+          background-color: white;
         }
         
         .value-control {
