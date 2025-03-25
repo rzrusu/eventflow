@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import useStoryStore from '../src/store/storyStore';
+import { beautifyContent } from '../src/utils/geminiUtils';
 
 const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
   const [title, setTitle] = useState('');
@@ -14,6 +15,10 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
   const [triggerRequirements, setTriggerRequirements] = useState([]);
   const [newTriggerKey, setNewTriggerKey] = useState('');
   const [newTriggerValue, setNewTriggerValue] = useState('');
+  
+  // AI Beautify state
+  const [isBeautifying, setIsBeautifying] = useState(false);
+  const [beautifyError, setBeautifyError] = useState(null);
   
   // Get the updateEvent function from the store
   const { updateEvent } = useStoryStore();
@@ -313,6 +318,30 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
     );
   };
   
+  // Handle AI beautify content
+  const handleBeautifyContent = async () => {
+    if (!content.trim()) {
+      setBeautifyError("Please add some content to beautify");
+      return;
+    }
+
+    try {
+      setIsBeautifying(true);
+      setBeautifyError(null);
+      
+      // Call the beautifyContent function from the utils
+      const improvedContent = await beautifyContent(content);
+      
+      // Update the content state
+      setContent(improvedContent);
+    } catch (error) {
+      console.error("Error beautifying content:", error);
+      setBeautifyError(error.message || "Failed to beautify content");
+    } finally {
+      setIsBeautifying(false);
+    }
+  };
+  
   if (!eventData) {
     return <div className="event-editor error">Event data not available</div>;
   }
@@ -342,7 +371,18 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
         </div>
         
         <div className="form-group">
-          <label htmlFor="event-content">Content</label>
+          <div className="content-header">
+            <label htmlFor="event-content">Content</label>
+            <button 
+              className="ai-beautify-btn"
+              onClick={handleBeautifyContent}
+              disabled={isBeautifying || !content.trim()}
+              title="Use AI to improve writing"
+            >
+              {isBeautifying ? 'Processing...' : '✨ AI Beautify'}
+            </button>
+          </div>
+          {beautifyError && <div className="error-message">{beautifyError}</div>}
           <textarea
             id="event-content"
             value={content}
@@ -350,6 +390,12 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
             placeholder="Event content"
             rows={4}
           />
+          {isBeautifying && (
+            <div className="beautify-loading">
+              <div className="spinner"></div>
+              <span>Gemini 2.0 Flash is improving your text...</span>
+            </div>
+          )}
         </div>
         
         <div className="form-group">
@@ -476,14 +522,14 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
         <button 
           className="cancel-btn"
           onClick={onClose}
-          disabled={isLoading}
+          disabled={isLoading || isBeautifying}
         >
           Cancel
         </button>
         <button 
           className="save-btn"
           onClick={handleSave}
-          disabled={isLoading}
+          disabled={isLoading || isBeautifying}
         >
           {isLoading ? 'Saving...' : 'Save Changes'}
         </button>
@@ -1567,6 +1613,58 @@ const EventEditor = ({ eventId, eventData, availableEvents, onClose }) => {
         
         .close-triggers-btn-footer:hover {
           background: #1e88e5;
+        }
+        
+        .content-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 8px;
+        }
+        
+        .ai-beautify-btn {
+          background-color: #8e44ad;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          padding: 4px 12px;
+          font-size: 14px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          transition: background-color 0.2s;
+        }
+        
+        .ai-beautify-btn:hover {
+          background-color: #7d3c98;
+        }
+        
+        .ai-beautify-btn:disabled {
+          background-color: #ccc;
+          cursor: not-allowed;
+        }
+        
+        .beautify-loading {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-top: 8px;
+          font-size: 14px;
+          color: #8e44ad;
+        }
+        
+        .spinner {
+          width: 20px;
+          height: 20px;
+          border: 3px solid rgba(142, 68, 173, 0.3);
+          border-radius: 50%;
+          border-top-color: #8e44ad;
+          animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+          to { transform: rotate(360deg); }
         }
       `}</style>
     </div>

@@ -1,0 +1,55 @@
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getVertexAI } from "firebase/vertexai";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Validate environment variables
+const validateFirebaseConfig = () => {
+  const requiredVars = [
+    'VITE_FIREBASE_API_KEY',
+    'VITE_FIREBASE_AUTH_DOMAIN',
+    'VITE_FIREBASE_PROJECT_ID',
+    'VITE_FIREBASE_STORAGE_BUCKET',
+    'VITE_FIREBASE_MESSAGING_SENDER_ID',
+    'VITE_FIREBASE_APP_ID'
+  ];
+  
+  const missingVars = requiredVars.filter(
+    varName => !import.meta.env[varName]
+  );
+  
+  if (missingVars.length > 0) {
+    if (import.meta.env.DEV) {
+      console.warn(
+        `Missing Firebase configuration variables: ${missingVars.join(', ')}\n` +
+        'Make sure to add them to your .env file.'
+      );
+    }
+    return false;
+  }
+  
+  return true;
+};
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
+};
+
+// Check config before initializing
+validateFirebaseConfig();
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+
+// Initialize Vertex AI
+const vertexAI = getVertexAI(app);
+
+export { vertexAI };
+export default app;
